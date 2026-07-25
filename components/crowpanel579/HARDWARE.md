@@ -87,6 +87,13 @@ instead of flashing the panel for every tweak.
 
 ## Reference code
 
-- ESPHome component clone (init sequence for the cascade):
-  scratchpad copy at `esphome-crowpanel-579/components/crowpanel_579/crowpanel_579.cpp`
-  Repo also bundles `docs/SSD1683_Datasheet.pdf` and `docs/CrowPanel_579_Hardware.pdf`.
+- ESPHome component for this exact board (cascade init sequence, windowed
+  partial refresh; its repo also bundles the SSD1683 datasheet and the
+  CrowPanel hardware PDF): https://github.com/samperk1/esphome-crowpanel-579
+  Note its git history — HEAD has been a rolled-back debug state before;
+  the working driver may live a few commits back.
+- Local checkouts with Elecrow-derived code: `~/electronics/weather-crow5.7`
+  (EPD init/update sequences) and
+  `~/electronics/CrowPanel-esp32S3-5.79-inch-eink-display-LVGL-9-port`
+  (bundles GxEPD2, including `GxEPD2_579_GDEY0579T93` for the same panel
+  family).
