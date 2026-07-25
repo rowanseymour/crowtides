@@ -1,10 +1,10 @@
 #include "epd.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
-#include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,7 +12,7 @@
 static const char *TAG = "epd";
 
 // Pinout per Elecrow reference code (weather-crow5.7 spi.h) and the
-// ESPHome crowpanel_579 component — see docs/hardware.md.
+// ESPHome crowpanel_579 component — see HARDWARE.md.
 #define PIN_SCK  12
 #define PIN_MOSI 11
 #define PIN_CS   45
@@ -66,13 +66,57 @@ static void data(uint8_t d)
     spi_write(&d, 1);
 }
 
+// Trigger a display update sequence and wait for it to finish.
+static void update(uint8_t mode)
+{
+    cmd(0x22); data(mode);
+    cmd(0x20);
+    wait_busy();
+}
+
 // Scratch for assembling one controller's RAM data so each RAM write is a
 // single SPI transaction with CS held throughout, matching the reference
 // driver's framing (data reaches the slave relayed through the cascade).
 static uint8_t s_half[HALF_BUF];
 
+// RAM window + address counter setup, in framebuffer byte coordinates
+// (0-49 slave, 49-98 master; byte 49 spans the seam). Sequences from the
+// ESPHome crowpanel_579 component (seam alignment verified there on this
+// exact panel). Slave: data entry Y-inc/X-inc.
+static void set_window_slave(int bs, int be, int ys, int ye)
+{
+    cmd(0x91); data(0x03);
+    cmd(0xC4); data(bs); data(be);
+    cmd(0xC5); data(ys & 0xFF); data((ys >> 8) & 0x01);
+               data(ye & 0xFF); data((ye >> 8) & 0x01);
+    cmd(0xCE); data(bs);
+    cmd(0xCF); data(ys & 0xFF); data((ys >> 8) & 0x01);
+}
+
+// Master: data entry Y-inc/X-dec; X address is inverted: X = 98 - byte.
+static void set_window_master(int bs, int be, int ys, int ye)
+{
+    cmd(0x11); data(0x02);
+    cmd(0x44); data(98 - bs); data(98 - be);
+    cmd(0x45); data(ys & 0xFF); data((ys >> 8) & 0x01);
+               data(ye & 0xFF); data((ye >> 8) & 0x01);
+    cmd(0x4E); data(98 - bs);
+    cmd(0x4F); data(ys & 0xFF); data((ys >> 8) & 0x01);
+}
+
+// Full-RAM windows (whole controller).
+static void set_ram_slave(void)
+{
+    set_window_slave(0, HALF_ROW_BYTES - 1, 0, EPD_HEIGHT - 1);
+}
+
+static void set_ram_master(void)
+{
+    set_window_master(HALF_ROW_BYTES - 1, ROW_BYTES - 1, 0, EPD_HEIGHT - 1);
+}
+
 // Fill one controller RAM bank (cmd 0x24/0x26 master, 0xA4/0xA6 slave)
-// with a constant byte.
+// with a constant byte; window must be set first.
 static void fill_ram(uint8_t ram_cmd, uint8_t fill)
 {
     memset(s_half, fill, sizeof(s_half));
@@ -81,26 +125,47 @@ static void fill_ram(uint8_t ram_cmd, uint8_t fill)
     spi_write(s_half, sizeof(s_half));
 }
 
-// RAM window + address counter setup, from the ESPHome crowpanel_579
-// component (seam alignment verified there on this exact panel).
-// Master: right half, data entry Y-inc/X-dec, X counter starts at 49.
-static void set_ram_master(void)
+// Fill the same bank on both controllers, master first.
+static void fill_banks(uint8_t master_cmd, uint8_t slave_cmd, uint8_t fill)
 {
-    cmd(0x11); data(0x02);
-    cmd(0x44); data(0x31); data(0x00);
-    cmd(0x45); data(0x00); data(0x00); data(0x0F); data(0x01);
-    cmd(0x4E); data(0x31);
-    cmd(0x4F); data(0x00); data(0x00);
+    set_ram_master();
+    fill_ram(master_cmd, fill);
+    set_ram_slave();
+    fill_ram(slave_cmd, fill);
 }
 
-// Slave: left half, data entry Y-inc/X-inc.
-static void set_ram_slave(void)
+// Send framebuffer bytes bs..be of rows ys..ye as one SPI transaction.
+static void write_window_rows(int bs, int be, int ys, int ye)
 {
-    cmd(0x91); data(0x03);
-    cmd(0xC4); data(0x00); data(0x31);
-    cmd(0xC5); data(0x00); data(0x00); data(0x0F); data(0x01);
-    cmd(0xCE); data(0x00);
-    cmd(0xCF); data(0x00); data(0x00);
+    int wb = be - bs + 1;
+    for (int y = ys; y <= ye; y++) {
+        memcpy(&s_half[(y - ys) * wb], &s_fb[y * ROW_BYTES + bs], wb);
+    }
+    gpio_set_level(PIN_DC, 1);
+    spi_write(s_half, wb * (ye - ys + 1));
+}
+
+static void write_slave_window(uint8_t ram_cmd, int bs, int be, int ys, int ye)
+{
+    set_window_slave(bs, be, ys, ye);
+    cmd(ram_cmd);
+    write_window_rows(bs, be, ys, ye);
+}
+
+static void write_master_window(uint8_t ram_cmd, int bs, int be, int ys, int ye)
+{
+    set_window_master(bs, be, ys, ye);
+    cmd(ram_cmd);
+    write_window_rows(bs, be, ys, ye);
+}
+
+// Write the framebuffer into one RAM bank of both controllers.
+// bank 0x24/0xA4 = new image, 0x26/0xA6 = old image (diff baseline).
+static void write_fb(uint8_t master_cmd, uint8_t slave_cmd)
+{
+    write_slave_window(slave_cmd, 0, HALF_ROW_BYTES - 1, 0, EPD_HEIGHT - 1);
+    write_master_window(master_cmd, HALF_ROW_BYTES - 1, ROW_BYTES - 1,
+                        0, EPD_HEIGHT - 1);
 }
 
 static void reset(void)
@@ -113,9 +178,8 @@ static void reset(void)
     wait_busy();
 }
 
-static void write_fb(uint8_t master_cmd, uint8_t slave_cmd);
-
-// Panel register init, shared by cold init and wake.
+// Panel register init, common to Elecrow's examples and the ESPHome
+// component.
 static void panel_init(void)
 {
     reset();
@@ -134,16 +198,7 @@ static void panel_init(void)
     wait_busy();
 }
 
-void epd_wake(void)
-{
-    panel_init();
-    // Restore both RAM banks to match the panel (framebuffer must hold
-    // the currently displayed image).
-    write_fb(0x24, 0xA4);
-    write_fb(0x26, 0xA6);
-}
-
-void epd_power_off(void)
+void epd_hold_power(void)
 {
     // Keep the panel rail ON through MCU deep sleep: the controller is in
     // its own deep-sleep mode (~1uA) which actively holds the pixels
@@ -198,13 +253,11 @@ void epd_init(void)
     };
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
-    // Init sequence common to Elecrow's examples and the ESPHome component.
+    // No screen clear here: epd_display's act 1 reaches solid white from
+    // any stale panel/RAM state, so clearing at init would just add a
+    // second flash. Call epd_clear_white explicitly if a blank panel is
+    // the desired end state.
     panel_init();
-
-    // Start every session from a known state: white panel, both RAM banks
-    // coherent. Costs one flash per boot but makes the first epd_display
-    // deterministic regardless of what RAM survived the last session.
-    epd_clear_white();
 
     ESP_LOGI(TAG, "init done");
 }
@@ -213,7 +266,8 @@ void epd_clear_white(void)
 {
     // New RAM = 0xFF (white), old RAM = 0x00, on both controllers, then a
     // full refresh — matches Elecrow's EPD_Display_Clear. This clears
-    // reliably from ANY stale panel/RAM state.
+    // reliably from ANY stale panel/RAM state. (Order of the four bank
+    // writes is kept exactly as the reference code sends them.)
     set_ram_master();
     fill_ram(0x24, 0xFF);
     set_ram_master();
@@ -223,9 +277,7 @@ void epd_clear_white(void)
     set_ram_slave();
     fill_ram(0xA6, 0x00);
 
-    cmd(0x22); data(0xF7);  // full update
-    cmd(0x20);
-    wait_busy();
+    update(0xF7);
     // Old RAM deliberately stays 0x00 (Elecrow leaves it so): the F7
     // waveform on this panel drives white->black only for (old=0,new=0)
     // pairs — with old RAM all-white it never blackens anything.
@@ -282,38 +334,11 @@ void epd_fb_line(int x0, int y0, int x1, int y1, bool black)
     }
 }
 
-// Write the framebuffer into one RAM bank of both controllers.
-// bank 0x24/0xA4 = new image, 0x26/0xA6 = old image (diff baseline).
-static void write_fb(uint8_t master_cmd, uint8_t slave_cmd)
-{
-    // Slave: left half, bytes 0-49 of each row.
-    for (int y = 0; y < EPD_HEIGHT; y++) {
-        memcpy(&s_half[y * HALF_ROW_BYTES], &s_fb[y * ROW_BYTES], HALF_ROW_BYTES);
-    }
-    set_ram_slave();
-    cmd(slave_cmd);
-    gpio_set_level(PIN_DC, 1);
-    spi_write(s_half, sizeof(s_half));
-
-    // Master: right half, bytes 49-98 in normal order; its X counter
-    // decrements from 49 so byte 49 lands at the seam.
-    for (int y = 0; y < EPD_HEIGHT; y++) {
-        memcpy(&s_half[y * HALF_ROW_BYTES],
-               &s_fb[y * ROW_BYTES + HALF_ROW_BYTES - 1], HALF_ROW_BYTES);
-    }
-    set_ram_master();
-    cmd(master_cmd);
-    gpio_set_level(PIN_DC, 1);
-    spi_write(s_half, sizeof(s_half));
-}
-
-// Plain full refresh: write the frame, one 0xF7 flash, then sync old RAM
-// as the diff baseline for partials. Correct because epd_init always
-// leaves the panel white with both RAM banks coherent (see below); never
-// touch command 0x21 — either data byte of it scrambles output on this
-// board — and never update with 0xDC (it shows the complement of new RAM
-// when old RAM is 0x00; Elecrow's fast path writes ~data for that reason).
-// Full refresh, three acts — each mode on this panel can only do one job:
+// Full refresh, three acts — each waveform on this panel can only do one
+// job. Never touch command 0x21 (either data byte scrambles output on
+// this board) and never update with 0xDC (it shows the complement of new
+// RAM when old RAM is 0x00; Elecrow's fast path writes ~data for that
+// reason).
 //  1. F7 clear flash (old=00, new=FF): the only reliable path to solid
 //     white from any state. F7 cannot CREATE black — its (1,0) entry is a
 //     no-op and its (0,0) entry only maintains existing black.
@@ -326,33 +351,17 @@ static void write_fb(uint8_t master_cmd, uint8_t slave_cmd)
 void epd_display(void)
 {
     // Act 1: flash to white.
-    set_ram_master();
-    fill_ram(0x26, 0x00);
-    set_ram_slave();
-    fill_ram(0xA6, 0x00);
-    set_ram_master();
-    fill_ram(0x24, 0xFF);
-    set_ram_slave();
-    fill_ram(0xA4, 0xFF);
-    cmd(0x22); data(0xF7);
-    cmd(0x20);
-    wait_busy();
+    fill_banks(0x26, 0xA6, 0x00);
+    fill_banks(0x24, 0xA4, 0xFF);
+    update(0xF7);
 
     // Act 2: crisp draw via 0xFF diff against the white panel.
-    set_ram_master();
-    fill_ram(0x26, 0xFF);
-    set_ram_slave();
-    fill_ram(0xA6, 0xFF);
+    fill_banks(0x26, 0xA6, 0xFF);
     epd_display_partial(0, 0, EPD_WIDTH, EPD_HEIGHT);
 
     // Act 3: seal with F7 so later partials are safe.
-    set_ram_master();
-    fill_ram(0x26, 0x00);
-    set_ram_slave();
-    fill_ram(0xA6, 0x00);
-    cmd(0x22); data(0xF7);
-    cmd(0x20);
-    wait_busy();
+    fill_banks(0x26, 0xA6, 0x00);
+    update(0xF7);
 
     // The controller swaps RAM-bank roles after each update (hence GxEPD2's
     // writeImageAgain): rewrite BOTH banks so current and previous both
@@ -361,42 +370,9 @@ void epd_display(void)
     write_fb(0x26, 0xA6);
 }
 
-// Windowed RAM area setup for partial refresh, in framebuffer byte
-// coordinates (0-49 slave, 49-98 master; byte 49 spans the seam).
-static void set_window_slave(int bs, int be, int ys, int ye)
-{
-    cmd(0x91); data(0x03);
-    cmd(0xC4); data(bs); data(be);
-    cmd(0xC5); data(ys & 0xFF); data((ys >> 8) & 0x01);
-               data(ye & 0xFF); data((ye >> 8) & 0x01);
-    cmd(0xCE); data(bs);
-    cmd(0xCF); data(ys & 0xFF); data((ys >> 8) & 0x01);
-}
-
-static void set_window_master(int bs, int be, int ys, int ye)
-{
-    // Master X address is inverted: X = 98 - fb byte index.
-    cmd(0x11); data(0x02);
-    cmd(0x44); data(98 - bs); data(98 - be);
-    cmd(0x45); data(ys & 0xFF); data((ys >> 8) & 0x01);
-               data(ye & 0xFF); data((ye >> 8) & 0x01);
-    cmd(0x4E); data(98 - bs);
-    cmd(0x4F); data(ys & 0xFF); data((ys >> 8) & 0x01);
-}
-
-static void write_window_rows(int bs, int be, int ys, int ye)
-{
-    int wb = be - bs + 1;
-    for (int y = ys; y <= ye; y++) {
-        memcpy(&s_half[(y - ys) * wb], &s_fb[y * ROW_BYTES + bs], wb);
-    }
-    gpio_set_level(PIN_DC, 1);
-    spi_write(s_half, wb * (ye - ys + 1));
-}
-
 // Windowed partial refresh per the confirmed-working ESPHome driver for
 // this board: write only the region's RAM, then update with the OTP
-// waveform (0xFF). No old-RAM sync afterwards.
+// waveform (0xFF).
 void epd_display_partial(int x, int y, int w, int h)
 {
     if (w <= 0 || h <= 0) {
@@ -420,40 +396,26 @@ void epd_display_partial(int x, int y, int w, int h)
         // byte 48 without it makes the waveform black out everything
         // outside the window on the slave chip.
         if (sbe >= 48) sbe = 49;
-        set_window_slave(sbs, sbe, y, y_end);
-        cmd(0xA4);
-        write_window_rows(sbs, sbe, y, y_end);
+        write_slave_window(0xA4, sbs, sbe, y, y_end);
     }
     if (master) {
         int px_start = x >= 392 ? x : 392;
         mbs = 49 + (px_start - 392) / 8;
         mbe = 49 + (x_end - 392) / 8;
-        set_window_master(mbs, mbe, y, y_end);
-        cmd(0x24);
-        write_window_rows(mbs, mbe, y, y_end);
+        write_master_window(0x24, mbs, mbe, y, y_end);
     }
 
-    cmd(0x22); data(0xFF);
-    cmd(0x20);
-    wait_busy();
+    update(0xFF);
 
     // Post-update bank swap: rewrite the window into BOTH banks so both
     // hold the current image (see epd_display).
     if (slave) {
-        set_window_slave(sbs, sbe, y, y_end);
-        cmd(0xA4);
-        write_window_rows(sbs, sbe, y, y_end);
-        set_window_slave(sbs, sbe, y, y_end);
-        cmd(0xA6);
-        write_window_rows(sbs, sbe, y, y_end);
+        write_slave_window(0xA4, sbs, sbe, y, y_end);
+        write_slave_window(0xA6, sbs, sbe, y, y_end);
     }
     if (master) {
-        set_window_master(mbs, mbe, y, y_end);
-        cmd(0x24);
-        write_window_rows(mbs, mbe, y, y_end);
-        set_window_master(mbs, mbe, y, y_end);
-        cmd(0x26);
-        write_window_rows(mbs, mbe, y, y_end);
+        write_master_window(0x24, mbs, mbe, y, y_end);
+        write_master_window(0x26, mbs, mbe, y, y_end);
     }
 }
 

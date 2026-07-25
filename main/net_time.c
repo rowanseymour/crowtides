@@ -10,7 +10,6 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
-#include "nvs_flash.h"
 
 #include "config.h"
 
@@ -45,17 +44,15 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
 bool net_connect(void)
 {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
-    }
+    // NVS is initialised by app_main before this can run.
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    // Config comes from config.h every boot — don't persist it to flash.
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
     s_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
@@ -83,9 +80,6 @@ bool net_connect(void)
 
 bool net_sync_time(void)
 {
-    setenv("TZ", TIDE_TZ, 1);
-    tzset();
-
     esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
         2, ESP_SNTP_SERVER_LIST("time.google.com", "pool.ntp.org"));
     ESP_ERROR_CHECK(esp_netif_sntp_init(&cfg));

@@ -7,3 +7,7 @@
 #define BTN_WHEEL_UP    6
 #define BTN_WHEEL_DOWN  4
 #define BTN_WHEEL_CLICK 5
+
+// Onboard power LED. Drive low (and hold through deep sleep) to keep it
+// from sitting half-on and draining the battery.
+#define BOARD_PWR_LED   41

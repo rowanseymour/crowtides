@@ -9,12 +9,17 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "nvs.h"
 
 #include "config.h"
 
 static const char *TAG = "tides";
 
 #define RESPONSE_MAX (48 * 1024)
+
+#define CACHE_VERSION 1
+// Cached data is only valid for the coordinates it was fetched for.
+#define CACHE_LOC TIDE_LAT "," TIDE_LON
 
 // Parse one chunk's response, appending to `out`. Heights are placed by
 // sample index relative to out->start, which makes chunk-boundary
@@ -87,55 +92,15 @@ done:
     return ok;
 }
 
-static bool fetch_chunk(char *buf, time_t chunk_day, int days, tide_data_t *out)
+static void chunk_url(char *url, size_t size, time_t chunk_day, int days)
 {
     struct tm tm;
     localtime_r(&chunk_day, &tm);
-    char url[256];
-    snprintf(url, sizeof(url),
+    snprintf(url, size,
              "https://www.worldtides.info/api/v3?heights&extremes"
              "&date=%04d-%02d-%02d&days=%d&datum=CD"
              "&lat=" TIDE_LAT "&lon=" TIDE_LON "&key=" TIDE_API_KEY,
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, days);
-
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 20000,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (client == NULL) {
-        return false;
-    }
-    bool ok = false;
-
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "open failed: %s", esp_err_to_name(err));
-        goto done;
-    }
-    esp_http_client_fetch_headers(client);
-
-    int total = 0;
-    while (total < RESPONSE_MAX - 1) {
-        int n = esp_http_client_read(client, buf + total,
-                                     RESPONSE_MAX - 1 - total);
-        if (n <= 0) {
-            break;
-        }
-        total += n;
-    }
-    buf[total] = '\0';
-
-    int http_status = esp_http_client_get_status_code(client);
-    ESP_LOGI(TAG, "http %d, %d bytes", http_status, total);
-    if (http_status == 200 && total > 0) {
-        ok = parse_response(buf, out);
-    }
-
-done:
-    esp_http_client_cleanup(client);
-    return ok;
 }
 
 bool tides_fetch(tide_data_t *out, time_t start_day)
@@ -144,15 +109,46 @@ bool tides_fetch(tide_data_t *out, time_t start_day)
     if (buf == NULL) {
         return false;
     }
-
     memset(out, 0, sizeof(*out));
-    bool ok = true;
+
+    char url[256];
+    chunk_url(url, sizeof(url), start_day, TIDES_FETCH_CHUNK_DAYS);
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 20000,
+        .keep_alive_enable = true,
+    };
+    // One client for all chunks: the connection (and TLS session) is
+    // reused across requests to the same host.
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    bool ok = client != NULL;
+
     for (int d = 0; d < TIDES_DAYS && ok; d += TIDES_FETCH_CHUNK_DAYS) {
         int days = TIDES_DAYS - d;
         if (days > TIDES_FETCH_CHUNK_DAYS) {
             days = TIDES_FETCH_CHUNK_DAYS;
         }
-        ok = fetch_chunk(buf, start_day + (time_t)d * 86400, days, out);
+        chunk_url(url, sizeof(url), start_day + (time_t)d * TIDES_DAY_SEC,
+                  days);
+        esp_http_client_set_url(client, url);
+
+        esp_err_t err = esp_http_client_open(client, 0);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "open failed: %s", esp_err_to_name(err));
+            ok = false;
+            break;
+        }
+        esp_http_client_fetch_headers(client);
+        int total = esp_http_client_read_response(client, buf,
+                                                  RESPONSE_MAX - 1);
+        int http_status = esp_http_client_get_status_code(client);
+        ESP_LOGI(TAG, "http %d, %d bytes", http_status, total);
+        ok = http_status == 200 && total > 0 &&
+             (buf[total] = '\0', parse_response(buf, out));
+    }
+    if (client != NULL) {
+        esp_http_client_cleanup(client);
     }
     free(buf);
 
@@ -165,6 +161,63 @@ bool tides_fetch(tide_data_t *out, time_t start_day)
         memset(out, 0, sizeof(*out));
     }
     return ok;
+}
+
+void tides_cache_load(tide_data_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    nvs_handle_t h;
+    if (nvs_open("crowtides", NVS_READONLY, &h) != ESP_OK) {
+        return;
+    }
+    uint32_t ver = 0;
+    char loc[40] = "";
+    size_t loc_size = sizeof(loc);
+    size_t size = sizeof(*out);
+    if (nvs_get_u32(h, "ver", &ver) == ESP_OK && ver == CACHE_VERSION &&
+        nvs_get_str(h, "loc", loc, &loc_size) == ESP_OK &&
+        strcmp(loc, CACHE_LOC) == 0 &&
+        nvs_get_blob(h, "tides", out, &size) == ESP_OK &&
+        size == sizeof(*out)) {
+        ESP_LOGI(TAG, "cache loaded: %d heights from %lld", out->n_heights,
+                 (long long)out->start);
+    } else {
+        memset(out, 0, sizeof(*out));
+    }
+    nvs_close(h);
+}
+
+void tides_cache_save(const tide_data_t *t)
+{
+    nvs_handle_t h;
+    if (nvs_open("crowtides", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "cache save failed");
+        return;
+    }
+    nvs_set_u32(h, "ver", CACHE_VERSION);
+    nvs_set_str(h, "loc", CACHE_LOC);
+    nvs_set_blob(h, "tides", t, sizeof(*t));
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+bool tides_day_range(const tide_data_t *t, time_t day_start, int *i0, int *i1)
+{
+    *i0 = 0;
+    *i1 = 0;
+    if (t->n_heights <= 0) {
+        return false;
+    }
+    int64_t first = ((int64_t)day_start - t->start) / TIDES_STEP_SEC;
+    int64_t last = first + TIDES_SAMPLES_PER_DAY;
+    if (first < 0) first = 0;
+    if (last > t->n_heights - 1) last = t->n_heights - 1;
+    if (last <= first) {
+        return false;
+    }
+    *i0 = (int)first;
+    *i1 = (int)last;
+    return true;
 }
 
 bool tides_has_day(const tide_data_t *t, time_t day_start)
@@ -183,6 +236,6 @@ int tides_days_ahead(const tide_data_t *t, time_t from)
         return 0;
     }
     int64_t end = t->start + (int64_t)(t->n_heights - 1) * TIDES_STEP_SEC;
-    int64_t days = (end - (int64_t)from) / 86400;
+    int64_t days = (end - (int64_t)from) / TIDES_DAY_SEC;
     return days < 0 ? 0 : (int)days;
 }

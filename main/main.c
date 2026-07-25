@@ -9,10 +9,9 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "nvs.h"
 #include "nvs_flash.h"
 
-#include "buttons.h"
+#include "board.h"
 #include "chart.h"
 #include "config.h"
 #include "epd.h"
@@ -28,8 +27,6 @@ static const char *TAG = "crowtides";
 // Refetch when fewer than this many future days remain cached.
 #define FETCH_MIN_DAYS_AHEAD 7
 
-#define CACHE_VERSION 1
-
 #define TIME_VALID_AFTER 1735689600   // RTC clock plausible if past 2025
 // Guard against integer truncation waking a hair before midnight (which
 // would redraw yesterday). Fetches use explicit dates, so nothing else
@@ -43,48 +40,8 @@ RTC_DATA_ATTR static int s_offset;
 
 static tide_data_t s_tides;
 
-#define WAKE_PIN_MASK ((1ULL << BTN_MENU) | (1ULL << BTN_EXIT) | \
-                       (1ULL << BTN_WHEEL_UP) | (1ULL << BTN_WHEEL_DOWN))
-
-// Cached data is only valid for the coordinates it was fetched for.
-#define CACHE_LOC TIDE_LAT "," TIDE_LON
-
-static void cache_load(void)
-{
-    nvs_handle_t h;
-    if (nvs_open("crowtides", NVS_READONLY, &h) != ESP_OK) {
-        return;
-    }
-    uint32_t ver = 0;
-    char loc[40] = "";
-    size_t loc_size = sizeof(loc);
-    size_t size = sizeof(s_tides);
-    if (nvs_get_u32(h, "ver", &ver) == ESP_OK && ver == CACHE_VERSION &&
-        nvs_get_str(h, "loc", loc, &loc_size) == ESP_OK &&
-        strcmp(loc, CACHE_LOC) == 0 &&
-        nvs_get_blob(h, "tides", &s_tides, &size) == ESP_OK &&
-        size == sizeof(s_tides)) {
-        ESP_LOGI(TAG, "cache loaded: %d heights from %lld", s_tides.n_heights,
-                 (long long)s_tides.start);
-    } else {
-        memset(&s_tides, 0, sizeof(s_tides));
-    }
-    nvs_close(h);
-}
-
-static void cache_save(void)
-{
-    nvs_handle_t h;
-    if (nvs_open("crowtides", NVS_READWRITE, &h) != ESP_OK) {
-        ESP_LOGE(TAG, "cache save failed");
-        return;
-    }
-    nvs_set_u32(h, "ver", CACHE_VERSION);
-    nvs_set_str(h, "loc", CACHE_LOC);
-    nvs_set_blob(h, "tides", &s_tides, sizeof(s_tides));
-    nvs_commit(h);
-    nvs_close(h);
-}
+static const int WAKE_BTNS[] = { BTN_MENU, BTN_EXIT, BTN_WHEEL_UP,
+                                 BTN_WHEEL_DOWN };
 
 static time_t local_midnight(time_t t)
 {
@@ -101,24 +58,26 @@ static void go_to_sleep(int64_t seconds)
     ESP_LOGI(TAG, "deep sleep for %lld s", seconds);
     esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
 
-    const int pins[] = { BTN_MENU, BTN_EXIT, BTN_WHEEL_UP, BTN_WHEEL_DOWN };
-    for (int i = 0; i < 4; i++) {
-        rtc_gpio_pullup_en(pins[i]);
-        rtc_gpio_pulldown_dis(pins[i]);
+    uint64_t mask = 0;
+    for (int i = 0; i < sizeof(WAKE_BTNS) / sizeof(WAKE_BTNS[0]); i++) {
+        rtc_gpio_pullup_en(WAKE_BTNS[i]);
+        rtc_gpio_pulldown_dis(WAKE_BTNS[i]);
+        mask |= 1ULL << WAKE_BTNS[i];
     }
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
-    esp_sleep_enable_ext1_wakeup(WAKE_PIN_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
 
     // Make sure the power LED can't sit half-on through deep sleep.
     gpio_config_t led = {
-        .pin_bit_mask = 1ULL << GPIO_NUM_41,
+        .pin_bit_mask = 1ULL << BOARD_PWR_LED,
         .mode = GPIO_MODE_OUTPUT,
     };
     gpio_config(&led);
-    gpio_set_level(GPIO_NUM_41, 0);
-    gpio_hold_en(GPIO_NUM_41);
+    gpio_set_level(BOARD_PWR_LED, 0);
+    gpio_hold_en(BOARD_PWR_LED);
+    gpio_deep_sleep_hold_en();
 
-    epd_power_off();
+    epd_hold_power();
     esp_deep_sleep_start();
 }
 
@@ -151,17 +110,25 @@ static void accumulate_wheel_input(void)
     }
 }
 
-// Clamp the view offset to days the cache can actually render.
-static void clamp_offset_to_cache(time_t today)
+// Recompute the derived view state: clock validity, today's midnight, the
+// viewed day (offset clamped to what the cache can render).
+static void refresh_view(bool *time_ok, time_t *today, time_t *view_day)
 {
-    while (s_offset > 0 &&
-           !tides_has_day(&s_tides, today + (time_t)s_offset * 86400)) {
-        s_offset--;
+    *time_ok = time(NULL) > TIME_VALID_AFTER;
+    *today = *time_ok ? local_midnight(time(NULL)) : 0;
+    if (*time_ok) {
+        while (s_offset > 0 &&
+               !tides_has_day(&s_tides,
+                              *today + (time_t)s_offset * TIDES_DAY_SEC)) {
+            s_offset--;
+        }
+        while (s_offset < 0 &&
+               !tides_has_day(&s_tides,
+                              *today + (time_t)s_offset * TIDES_DAY_SEC)) {
+            s_offset++;
+        }
     }
-    while (s_offset < 0 &&
-           !tides_has_day(&s_tides, today + (time_t)s_offset * 86400)) {
-        s_offset++;
-    }
+    *view_day = *today + (time_t)s_offset * TIDES_DAY_SEC;
 }
 
 void app_main(void)
@@ -174,15 +141,16 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
-    cache_load();
+    tides_cache_load(&s_tides);
 
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     uint64_t pins = cause == ESP_SLEEP_WAKEUP_EXT1
                         ? esp_sleep_get_ext1_wakeup_status() : 0;
     ESP_LOGI(TAG, "wake cause %d pins %llx offset %d", cause, pins, s_offset);
 
-    bool time_ok = time(NULL) > TIME_VALID_AFTER;
-    time_t today = time_ok ? local_midnight(time(NULL)) : 0;
+    bool time_ok;
+    time_t today, view_day;
+    refresh_view(&time_ok, &today, &view_day);
 
     bool force_fetch = false;  // definitely fetch
     bool need_net = false;     // need the clock before deciding
@@ -209,24 +177,17 @@ void app_main(void)
         accumulate_wheel_input();
     }
 
-    if (time_ok) {
-        clamp_offset_to_cache(today);
-    }
-    time_t view_day = today + (time_t)s_offset * 86400;
-
+    refresh_view(&time_ok, &today, &view_day);
     if (!(time_ok && tides_has_day(&s_tides, view_day))) {
         need_net = true;
     }
 
     if (force_fetch || need_net) {
         bool wifi_ok = net_connect();
-        bool sntp_ok = wifi_ok && net_sync_time();
-        time_ok = sntp_ok || time(NULL) > TIME_VALID_AFTER;
-        today = time_ok ? local_midnight(time(NULL)) : 0;
-        if (time_ok) {
-            clamp_offset_to_cache(today);
+        if (wifi_ok) {
+            net_sync_time();
         }
-        view_day = today + (time_t)s_offset * 86400;
+        refresh_view(&time_ok, &today, &view_day);
 
         // With the clock now valid, fetch only if the cache really needs
         // it — a battery swap with a fresh cache costs no API credits.
@@ -236,14 +197,16 @@ void app_main(void)
             ESP_LOGI(TAG, "clock synced, cache still fresh — no fetch");
         } else {
             bool fetched = time_ok && wifi_ok &&
-                tides_fetch(&s_tides, today + CACHE_FIRST_DAY * 86400);
+                tides_fetch(&s_tides,
+                            today + (time_t)CACHE_FIRST_DAY * TIDES_DAY_SEC);
             if (fetched) {
-                cache_save();
+                tides_cache_save(&s_tides);
             }
         }
         if (wifi_ok) {
             net_disconnect();
         }
+        refresh_view(&time_ok, &today, &view_day);
         if (!(time_ok && tides_has_day(&s_tides, view_day))) {
             // Nothing fit to draw: keep whatever is on screen, retry soon.
             ESP_LOGW(TAG, "refresh failed, retrying in %d min",
@@ -259,7 +222,7 @@ void app_main(void)
     ESP_LOGI(TAG, "chart drawn for offset %+d, %d cached days ahead",
              s_offset, tides_days_ahead(&s_tides, today));
 
-    int64_t secs = (int64_t)(local_midnight(time(NULL)) + 86400 - time(NULL))
-                   + WAKE_MARGIN_SEC;
+    int64_t secs = (int64_t)(local_midnight(time(NULL)) + TIDES_DAY_SEC
+                             - time(NULL)) + WAKE_MARGIN_SEC;
     go_to_sleep(secs < 60 ? 60 : secs);
 }

@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#define TIDES_DAY_SEC 86400
+
 // Tide predictions are deterministic, so cache a whole month and only
 // refetch when the window runs low. The API bills 1 credit per 7 days
 // (heights and extremes each), so a big window costs the same as fetching
@@ -12,7 +14,7 @@
 #define TIDES_STEP_SEC 1800
 #define TIDES_DAYS 28
 #define TIDES_FETCH_CHUNK_DAYS 7
-#define TIDES_SAMPLES_PER_DAY (86400 / TIDES_STEP_SEC)
+#define TIDES_SAMPLES_PER_DAY (TIDES_DAY_SEC / TIDES_STEP_SEC)
 #define TIDES_MAX_HEIGHTS (TIDES_DAYS * TIDES_SAMPLES_PER_DAY + 2)
 #define TIDES_MAX_EXTREMES 160
 
@@ -34,9 +36,30 @@ typedef struct {
 // `start_day`. Requires WiFi. Returns false on any failure.
 bool tides_fetch(tide_data_t *out, time_t start_day);
 
-// True if the cache fully covers the day starting at local midnight
-// `day_start`.
+// NVS persistence. The cache is tagged with the configured coordinates,
+// so a location change in config.h invalidates it. Load leaves `out`
+// zeroed when there is no valid cache.
+void tides_cache_load(tide_data_t *out);
+void tides_cache_save(const tide_data_t *t);
+
+// Sample index range [*i0, *i1] (inclusive) covering the day that starts
+// at local midnight `day_start`, clamped to the cached data. Returns
+// false (empty range) if the cache holds nothing for that day.
+bool tides_day_range(const tide_data_t *t, time_t day_start, int *i0, int *i1);
+
+// True if the cache fully covers the day starting at `day_start`.
 bool tides_has_day(const tide_data_t *t, time_t day_start);
 
 // Whole days of coverage the cache still holds from `from` onwards.
 int tides_days_ahead(const tide_data_t *t, time_t from);
+
+// Timestamp and height (metres above Chart Datum) of sample i.
+static inline time_t tides_sample_time(const tide_data_t *t, int i)
+{
+    return (time_t)(t->start + (int64_t)i * TIDES_STEP_SEC);
+}
+
+static inline float tides_height_m(const tide_data_t *t, int i)
+{
+    return t->h_mm[i] / 1000.0f;
+}

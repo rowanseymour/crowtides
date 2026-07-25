@@ -16,12 +16,8 @@ int epd_fb_text(int x, int y, const char *s, int scale, bool black)
                 if (!(glyph[gy] & (1 << gx))) {
                     continue;
                 }
-                for (int sy = 0; sy < scale; sy++) {
-                    for (int sx = 0; sx < scale; sx++) {
-                        epd_fb_set_pixel(x + gx * scale + sx,
-                                         y + gy * scale + sy, black);
-                    }
-                }
+                epd_fb_fill_rect(x + gx * scale, y + gy * scale,
+                                 scale, scale, black);
             }
         }
         x += 8 * scale;

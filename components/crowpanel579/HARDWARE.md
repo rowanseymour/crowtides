@@ -28,6 +28,15 @@ done via command sequencing, not separate chip selects.
 | Rotary encoder DOWN | 4    |
 | Rotary encoder CLICK| 5    |
 
+All buttons are active-low (enable pull-ups) and on RTC-capable GPIOs, so
+any of them can wake the chip from deep sleep via ext1.
+
+## Other onboard peripherals
+
+| Peripheral | GPIO | Notes                                          |
+|------------|------|------------------------------------------------|
+| Power LED  | 41   | Drive low + hold through deep sleep for battery |
+
 ## Panel
 
 - 272 x 792 physical, 1bpp mono. Landscape coordinates: x 0-791, y 0-271.
