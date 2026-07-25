@@ -43,6 +43,9 @@ static tide_data_t s_tides;
 #define WAKE_PIN_MASK ((1ULL << BTN_MENU) | (1ULL << BTN_EXIT) | \
                        (1ULL << BTN_WHEEL_UP) | (1ULL << BTN_WHEEL_DOWN))
 
+// Cached data is only valid for the coordinates it was fetched for.
+#define CACHE_LOC TIDE_LAT "," TIDE_LON
+
 static void cache_load(void)
 {
     nvs_handle_t h;
@@ -50,8 +53,12 @@ static void cache_load(void)
         return;
     }
     uint32_t ver = 0;
+    char loc[40] = "";
+    size_t loc_size = sizeof(loc);
     size_t size = sizeof(s_tides);
     if (nvs_get_u32(h, "ver", &ver) == ESP_OK && ver == CACHE_VERSION &&
+        nvs_get_str(h, "loc", loc, &loc_size) == ESP_OK &&
+        strcmp(loc, CACHE_LOC) == 0 &&
         nvs_get_blob(h, "tides", &s_tides, &size) == ESP_OK &&
         size == sizeof(s_tides)) {
         ESP_LOGI(TAG, "cache loaded: %d heights from %lld", s_tides.n_heights,
@@ -70,6 +77,7 @@ static void cache_save(void)
         return;
     }
     nvs_set_u32(h, "ver", CACHE_VERSION);
+    nvs_set_str(h, "loc", CACHE_LOC);
     nvs_set_blob(h, "tides", &s_tides, sizeof(s_tides));
     nvs_commit(h);
     nvs_close(h);

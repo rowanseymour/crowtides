@@ -10,10 +10,10 @@
 // chart's hour axis and the midnight refresh schedule, so it should be
 // the STATION's zone, not necessarily yours.
 // Examples:
-//   UTC-5 fixed (Ecuador):   "<-05>5"
-//   UK (GMT/BST):            "GMT0BST,M3.5.0/1,M10.5.0"
-//   Central Europe:          "CET-1CEST,M3.5.0,M10.5.0/3"
-#define TIDE_TZ "<-05>5"
+//   UK (GMT, BST in summer):  "GMT0BST,M3.5.0/1,M10.5.0"
+//   UTC-5 fixed (Ecuador):    "<-05>5"
+//   Central Europe:           "CET-1CEST,M3.5.0,M10.5.0/3"
+#define TIDE_TZ "GMT0BST,M3.5.0/1,M10.5.0"
 
 // WorldTides API key (https://www.worldtides.info/apidocs).
 #define TIDE_API_KEY "00000000-0000-0000-0000-000000000000"
@@ -21,8 +21,8 @@
 // Tide station coordinates in decimal degrees; the API attaches to the
 // nearest station/model point. Find stations at
 // https://www.worldtides.com/tidestations
-#define TIDE_LAT "-0.95"
-#define TIDE_LON "-80.7167"
+#define TIDE_LAT "55.206"
+#define TIDE_LON "-6.656"
 
 // Name shown in the chart header.
-#define TIDE_STATION_NAME "MANTA"
+#define TIDE_STATION_NAME "PORTRUSH"
