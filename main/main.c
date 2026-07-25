@@ -21,9 +21,9 @@
 
 static const char *TAG = "crowtides";
 
-// The cache is anchored CACHE_FIRST_DAY days back from the day of fetch,
-// so a couple of past days stay browsable.
-#define CACHE_FIRST_DAY (-2)
+// The cache is anchored CACHE_FIRST_DAY days back from the day of fetch:
+// one week of the past stays browsable, three weeks of future.
+#define CACHE_FIRST_DAY (-7)
 
 // Refetch when fewer than this many future days remain cached.
 #define FETCH_MIN_DAYS_AHEAD 7
@@ -31,7 +31,10 @@ static const char *TAG = "crowtides";
 #define CACHE_VERSION 1
 
 #define TIME_VALID_AFTER 1735689600   // RTC clock plausible if past 2025
-#define WAKE_MARGIN_SEC 120           // wake 00:02 local, not 00:00
+// Guard against integer truncation waking a hair before midnight (which
+// would redraw yesterday). Fetches use explicit dates, so nothing else
+// cares about the exact wake second.
+#define WAKE_MARGIN_SEC 2
 #define RETRY_SLEEP_SEC (30 * 60)
 
 // View state survives deep sleep; the tide cache itself lives in NVS so
