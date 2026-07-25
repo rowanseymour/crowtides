@@ -129,7 +129,8 @@ static void panel_init(void)
     cmd(0x22); data(0x91);  // load LUT from OTP
     cmd(0x20);
     wait_busy();
-    cmd(0x3C); data(0x03);  // border waveform
+    cmd(0x3C); data(0x01);  // border waveform: drives the border white
+                            // (0x03 leaves it grey after a full refresh)
     wait_busy();
 }
 
