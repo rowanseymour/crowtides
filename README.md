@@ -1,4 +1,4 @@
-![CrowTides](.github/banner.jpg)
+![CrowTides](.github/banner2.jpg)
 
 A daily tide chart on an [Elecrow CrowPanel 5.79" E-Paper HMI](https://www.elecrow.com/crowpanel-esp32-5-79-e-paper-hmi-display-with-272-792-resolution-black-white-color-driven-by-spi-interface.html)
 (ESP32-S3, 792x272 dual-SSD1683 panel), built on plain ESP-IDF.
