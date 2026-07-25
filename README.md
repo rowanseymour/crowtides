@@ -13,9 +13,13 @@ deterministic, so a month of heights and extremes from the
 runs low, roughly every three weeks. A failed refresh leaves the previous
 chart on screen and retries half an hour later.
 
-The onboard controls navigate the cache without any network: the wheel
-browses forward/backward a day at a time (the header shows an offset badge
-like `(+1)`), EXIT returns to today, and MENU forces a full refetch.
+The onboard controls navigate the cache without any network:
+
+| Control | Action |
+| ------- | ------ |
+| Wheel   | Browse forward/backward a day at a time |
+| EXIT    | Return to today |
+| MENU    | Force a full refetch |
 
 ## Setup
 
