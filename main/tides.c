@@ -17,7 +17,7 @@ static const char *TAG = "tides";
 
 #define RESPONSE_MAX (48 * 1024)
 
-#define CACHE_VERSION 1
+#define CACHE_VERSION 2
 // Cached data is only valid for the coordinates it was fetched for.
 #define CACHE_LOC TIDE_LAT "," TIDE_LON
 
@@ -72,8 +72,7 @@ static bool parse_response(const char *json, tide_data_t *out)
         }
         cJSON *dt = cJSON_GetObjectItem(item, "dt");
         cJSON *h = cJSON_GetObjectItem(item, "height");
-        cJSON *type = cJSON_GetObjectItem(item, "type");
-        if (cJSON_IsNumber(dt) && cJSON_IsNumber(h) && cJSON_IsString(type)) {
+        if (cJSON_IsNumber(dt) && cJSON_IsNumber(h)) {
             int64_t edt = (int64_t)dt->valuedouble;
             if (out->n_extremes > 0 &&
                 out->extremes[out->n_extremes - 1].dt >= edt) {
@@ -82,7 +81,6 @@ static bool parse_response(const char *json, tide_data_t *out)
             tide_extreme_t *e = &out->extremes[out->n_extremes++];
             e->dt = edt;
             e->h_mm = (int16_t)lrintf((float)h->valuedouble * 1000.0f);
-            e->high = strcmp(type->valuestring, "High") == 0;
         }
     }
 

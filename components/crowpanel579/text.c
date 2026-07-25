@@ -1,7 +1,14 @@
 #include "text.h"
 
+#include <string.h>
+
 #include "epd.h"
 #include "font8x8_basic.h"
+
+int epd_fb_text_width(const char *s, int scale)
+{
+    return (int)strlen(s) * 8 * scale;
+}
 
 int epd_fb_text(int x, int y, const char *s, int scale, bool black)
 {

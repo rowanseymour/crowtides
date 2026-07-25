@@ -1,6 +1,5 @@
 #include "chart.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -9,14 +8,24 @@
 
 #include "config.h"
 
-// Layout: header strip on top, chart below with y labels at left and hour
-// labels along the bottom.
-#define CH_LEFT   68
+// Layout: header strip on top; frameless chart below (baseline only),
+// hour labels along the bottom. No y-axis — extremes carry their own
+// height labels, and unlabeled 0.5m gridlines give the eye its rungs.
+#define CH_LEFT   10
 #define CH_RIGHT  786
 #define CH_TOP    44
 #define CH_BOTTOM 236
 #define CH_W (CH_RIGHT - CH_LEFT)
 #define CH_H (CH_BOTTOM - CH_TOP)
+
+// Vertical range reserves: the bottom band holds the solid water + white
+// times, the top band keeps sky-floating height labels inside the chart.
+#define RESERVE_BOTTOM 40
+#define RESERVE_TOP    26
+
+// Water turns solid black this many px above the baseline (the "deep
+// band" the white times sit in).
+#define SOLID_BAND 30
 
 static int x_for(time_t t, time_t t0)
 {
@@ -30,24 +39,59 @@ static int y_for(float h, float hmin, float hmax)
     return CH_BOTTOM - (int)((h - hmin) / (hmax - hmin) * CH_H);
 }
 
-static void dotted_hline(int y)
-{
-    for (int x = CH_LEFT; x < CH_RIGHT; x += 4) {
-        epd_fb_set_pixel(x, y, true);
-    }
-}
-
-static void dotted_vline(int x)
-{
-    for (int y = CH_TOP; y < CH_BOTTOM; y += 4) {
-        epd_fb_set_pixel(x, y, true);
-    }
-}
-
 // Right-aligned text against the panel's right margin.
 static void text_right(int y, const char *s, int scale)
 {
-    epd_fb_text(EPD_WIDTH - 8 - (int)strlen(s) * 8 * scale, y, s, scale, true);
+    epd_fb_text(EPD_WIDTH - 8 - epd_fb_text_width(s, scale), y, s, scale, true);
+}
+
+// Text horizontally centred on x, clamped inside the chart.
+static void text_centered(int x, int y, const char *s, int scale, bool black)
+{
+    int w = epd_fb_text_width(s, scale);
+    int lx = x - w / 2;
+    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
+    if (lx > CH_RIGHT - w - 6) lx = CH_RIGHT - w - 6;
+    epd_fb_text(lx, y, s, scale, black);
+}
+
+// Dithered water below the curve: Bayer 4x4 densening with depth until it
+// turns solid black in the bottom band.
+static const uint8_t BAYER4[4][4] = {
+    { 0, 8, 2, 10 },
+    { 12, 4, 14, 6 },
+    { 3, 11, 1, 9 },
+    { 15, 7, 13, 5 },
+};
+
+// One walk over the day's samples: dithered water below each curve
+// segment, then the 3px curve stroke on top of it.
+static void draw_sea(const tide_data_t *t, int i0, int i1,
+                     time_t day_start, float hmin, float hmax)
+{
+    const int solid_top = CH_BOTTOM - SOLID_BAND;
+    for (int i = i0; i < i1; i++) {
+        int x0 = x_for(tides_sample_time(t, i), day_start);
+        int y0 = y_for(tides_height_m(t, i), hmin, hmax);
+        int x1 = x_for(tides_sample_time(t, i + 1), day_start);
+        int y1 = y_for(tides_height_m(t, i + 1), hmin, hmax);
+        for (int x = x0; x < x1; x++) {
+            int yc = y0 + (int)((long long)(y1 - y0) * (x - x0) / (x1 - x0));
+            for (int y = yc + 3; y < CH_BOTTOM; y++) {
+                if (y >= solid_top) {
+                    epd_fb_set_pixel(x, y, true);
+                } else {
+                    int level = 2 + (y - CH_TOP) * 12 / (solid_top - CH_TOP);
+                    if (BAYER4[y % 4][x % 4] < level) {
+                        epd_fb_set_pixel(x, y, true);
+                    }
+                }
+            }
+        }
+        for (int d = -1; d <= 1; d++) {
+            epd_fb_line(x0, y0 + d, x1, y1 + d, true);
+        }
+    }
 }
 
 void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
@@ -59,15 +103,17 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         return;
     }
 
-    // Dynamic height range: fit the day's data, rounded out to 0.25m.
+    // Fit the day's data with reserved bands top and bottom.
     float hmin = tides_height_m(t, i0), hmax = hmin;
     for (int i = i0; i <= i1; i++) {
         float h = tides_height_m(t, i);
         if (h < hmin) hmin = h;
         if (h > hmax) hmax = h;
     }
-    hmin = floorf((hmin - 0.1f) / 0.25f) * 0.25f;
-    hmax = ceilf((hmax + 0.1f) / 0.25f) * 0.25f;
+    float span = hmax - hmin + 0.2f;
+    const int usable = CH_H - RESERVE_BOTTOM - RESERVE_TOP;
+    hmin -= 0.1f + span * RESERVE_BOTTOM / usable;
+    hmax += 0.1f + span * RESERVE_TOP / usable;
 
     // Header: station name at left; the VIEWED date right-aligned. When
     // browsing away from today a relative label sits under the date.
@@ -80,55 +126,41 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         text_right(12, buf, 2);
     } else {
         text_right(4, buf, 2);
-        char rel[24];
+        char nbuf[24];
+        const char *rel = nbuf;
         if (day_offset == 1) {
-            snprintf(rel, sizeof(rel), "TOMORROW");
+            rel = "TOMORROW";
         } else if (day_offset == -1) {
-            snprintf(rel, sizeof(rel), "YESTERDAY");
+            rel = "YESTERDAY";
         } else if (day_offset > 0) {
-            snprintf(rel, sizeof(rel), "IN %d DAYS", day_offset);
+            snprintf(nbuf, sizeof(nbuf), "IN %d DAYS", day_offset);
         } else {
-            snprintf(rel, sizeof(rel), "%d DAYS AGO", -day_offset);
+            snprintf(nbuf, sizeof(nbuf), "%d DAYS AGO", -day_offset);
         }
         text_right(24, rel, 2);
     }
 
-    // Horizontal gridlines + y labels at each 0.5m multiple (dotted).
-    for (float g = ceilf(hmin / 0.5f) * 0.5f; g <= hmax + 0.01f; g += 0.5f) {
-        int y = y_for(g, hmin, hmax);
-        dotted_hline(y);
-        snprintf(buf, sizeof(buf), "%.1f", g);
-        epd_fb_text(2, y - 8, buf, 2, true);
-    }
-
-    // Vertical gridlines + hour labels every 3h.
+    // Vertical gridlines every 3h; hour labels for all but the midnight
+    // edges (a clipped or shifted 00 looks worse than none).
     for (int hr = 0; hr <= 24; hr += 3) {
         int x = x_for(day_start + (time_t)hr * 3600, day_start);
-        dotted_vline(x);
-        snprintf(buf, sizeof(buf), "%02d", hr % 24);
-        epd_fb_text(x - 16, CH_BOTTOM + 10, buf, 2, true);
-    }
-
-    // Chart frame.
-    epd_fb_line(CH_LEFT, CH_TOP, CH_RIGHT, CH_TOP, true);
-    epd_fb_line(CH_LEFT, CH_BOTTOM, CH_RIGHT, CH_BOTTOM, true);
-    epd_fb_line(CH_LEFT, CH_TOP, CH_LEFT, CH_BOTTOM, true);
-    epd_fb_line(CH_RIGHT, CH_TOP, CH_RIGHT, CH_BOTTOM, true);
-
-    // Tide curve, 3px thick.
-    for (int i = i0; i < i1; i++) {
-        int x0 = x_for(tides_sample_time(t, i), day_start);
-        int y0 = y_for(tides_height_m(t, i), hmin, hmax);
-        int x1 = x_for(tides_sample_time(t, i + 1), day_start);
-        int y1 = y_for(tides_height_m(t, i + 1), hmin, hmax);
-        for (int d = -1; d <= 1; d++) {
-            epd_fb_line(x0, y0 + d, x1, y1 + d, true);
+        for (int y = CH_TOP; y < CH_BOTTOM; y += 4) {
+            epd_fb_set_pixel(x, y, true);
+        }
+        if (hr % 24 != 0) {
+            snprintf(buf, sizeof(buf), "%02d", hr);
+            epd_fb_text(x - 16, CH_BOTTOM + 10, buf, 2, true);
         }
     }
 
-    // Extremes within the day: time + height labels placed inside the
-    // curve's wedge — below a peak, above a trough — where there is
-    // always clear space.
+    // Baseline only — no frame.
+    epd_fb_line(CH_LEFT, CH_BOTTOM, CH_RIGHT, CH_BOTTOM, true);
+
+    // Water and curve.
+    draw_sea(t, i0, i1, day_start, hmin, hmax);
+
+    // Extremes: heights float unboxed in the sky above each peak/trough;
+    // times sit in white inside the solid deep-water band.
     for (int i = 0; i < t->n_extremes; i++) {
         const tide_extreme_t *e = &t->extremes[i];
         if (e->dt < day_start || e->dt >= day_start + TIDES_DAY_SEC) {
@@ -138,16 +170,12 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         float eh = e->h_mm / 1000.0f;
         int x = x_for(edt, day_start);
         int y = y_for(eh, hmin, hmax);
+
+        snprintf(buf, sizeof(buf), "%.1fm", eh);
+        text_centered(x, y - 26, buf, 2, true);
+
         localtime_r(&edt, &tm);
         strftime(buf, sizeof(buf), "%H:%M", &tm);
-        int lx = x - 40;
-        if (lx < CH_LEFT + 2) lx = CH_LEFT + 2;
-        if (lx > CH_RIGHT - 82) lx = CH_RIGHT - 82;
-        int ly = e->high ? y + 14 : y - 50;
-        if (ly < CH_TOP + 2) ly = CH_TOP + 2;
-        if (ly > CH_BOTTOM - 36) ly = CH_BOTTOM - 36;
-        epd_fb_text(lx, ly, buf, 2, true);
-        snprintf(buf, sizeof(buf), "%.1fm", eh);
-        epd_fb_text(lx, ly + 18, buf, 2, true);
+        text_centered(x, CH_BOTTOM - 23, buf, 2, false);
     }
 }

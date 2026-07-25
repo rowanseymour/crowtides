@@ -79,6 +79,12 @@ byte), or the update blacks out non-window pixels on the slave chip.
 Timing: full refresh (3 acts) ~4s; windowed partial ~1.6s, no flash.
 Partials verified stable across 70s idle gaps and back-to-back updates.
 
+## Layout mockups without hardware
+
+`tools/epdsim.py` is a Python twin of the framebuffer API (same canvas,
+same font, same primitives). Use it to iterate on screen layouts as PNGs
+instead of flashing the panel for every tweak.
+
 ## Reference code
 
 - ESPHome component clone (init sequence for the cascade):

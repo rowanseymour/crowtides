@@ -21,7 +21,6 @@
 typedef struct {
     int64_t dt;
     int16_t h_mm;
-    bool high;
 } tide_extreme_t;
 
 typedef struct {
