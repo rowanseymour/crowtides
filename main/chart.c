@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "epd.h"
 #include "text.h"
@@ -54,21 +55,31 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
     hmin = floorf((hmin - 0.1f) / 0.25f) * 0.25f;
     hmax = ceilf((hmax + 0.1f) / 0.25f) * 0.25f;
 
-    // Header: station name + the VIEWED date, with an offset badge when
-    // browsing away from today. Heights are relative to Chart Datum.
+    // Header: station name at left; the VIEWED date right-aligned. When
+    // browsing away from today a relative label sits under the date.
     struct tm tm;
     localtime_r(&day_start, &tm);
     char buf[48];
     epd_fb_text(8, 8, TIDE_STATION_NAME, 3, true);
-    if (day_offset != 0) {
-        snprintf(buf, sizeof(buf), "(%+d)", day_offset);
-        epd_fb_text(8 + (int)sizeof(TIDE_STATION_NAME) * 24 + 8, 12, buf, 2,
-                    true);
-    }
     snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-    epd_fb_text(EPD_WIDTH - 8 - (int)(sizeof("0000-00-00") - 1) * 16,
-                12, buf, 2, true);
+    int date_x = EPD_WIDTH - 8 - (int)(sizeof("0000-00-00") - 1) * 16;
+    if (day_offset == 0) {
+        epd_fb_text(date_x, 12, buf, 2, true);
+    } else {
+        epd_fb_text(date_x, 4, buf, 2, true);
+        char rel[24];
+        if (day_offset == 1) {
+            snprintf(rel, sizeof(rel), "TOMORROW");
+        } else if (day_offset == -1) {
+            snprintf(rel, sizeof(rel), "YESTERDAY");
+        } else if (day_offset > 0) {
+            snprintf(rel, sizeof(rel), "IN %d DAYS", day_offset);
+        } else {
+            snprintf(rel, sizeof(rel), "%d DAYS AGO", -day_offset);
+        }
+        epd_fb_text(EPD_WIDTH - 8 - (int)strlen(rel) * 16, 24, rel, 2, true);
+    }
 
     // Horizontal gridlines + y labels at each 0.5m multiple (dotted).
     for (float g = ceilf(hmin / 0.5f) * 0.5f; g <= hmax + 0.01f; g += 0.5f) {

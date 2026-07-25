@@ -173,16 +173,21 @@ void app_main(void)
     bool time_ok = time(NULL) > TIME_VALID_AFTER;
     time_t today = time_ok ? local_midnight(time(NULL)) : 0;
 
-    bool need_fetch = false;
+    bool force_fetch = false;  // definitely fetch
+    bool need_net = false;     // need the clock before deciding
     if (cause == ESP_SLEEP_WAKEUP_TIMER || cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
         // Daily redraw (or cold boot). Only fetch when the cached window
-        // runs low — tide predictions don't change.
+        // runs low — tide predictions don't change. Without a valid clock
+        // (power loss) we must sync first; the cache may still be fine.
         s_offset = 0;
-        need_fetch = !time_ok ||
-                     tides_days_ahead(&s_tides, today) < FETCH_MIN_DAYS_AHEAD;
+        if (!time_ok) {
+            need_net = true;
+        } else if (tides_days_ahead(&s_tides, today) < FETCH_MIN_DAYS_AHEAD) {
+            force_fetch = true;
+        }
     } else if (pins & (1ULL << BTN_MENU)) {
         s_offset = 0;
-        need_fetch = true;
+        force_fetch = true;
     } else if (pins & (1ULL << BTN_EXIT)) {
         s_offset = 0;
     } else if (pins & (1ULL << BTN_WHEEL_UP)) {
@@ -198,25 +203,37 @@ void app_main(void)
     }
     time_t view_day = today + (time_t)s_offset * 86400;
 
-    if (!need_fetch && !(time_ok && tides_has_day(&s_tides, view_day))) {
-        need_fetch = true;
+    if (!(time_ok && tides_has_day(&s_tides, view_day))) {
+        need_net = true;
     }
 
-    if (need_fetch) {
+    if (force_fetch || need_net) {
         bool wifi_ok = net_connect();
         bool sntp_ok = wifi_ok && net_sync_time();
         time_ok = sntp_ok || time(NULL) > TIME_VALID_AFTER;
         today = time_ok ? local_midnight(time(NULL)) : 0;
+        if (time_ok) {
+            clamp_offset_to_cache(today);
+        }
         view_day = today + (time_t)s_offset * 86400;
 
-        bool fetched = time_ok && wifi_ok &&
-            tides_fetch(&s_tides, today + CACHE_FIRST_DAY * 86400);
+        // With the clock now valid, fetch only if the cache really needs
+        // it — a battery swap with a fresh cache costs no API credits.
+        if (!force_fetch && time_ok &&
+            tides_has_day(&s_tides, view_day) &&
+            tides_days_ahead(&s_tides, today) >= FETCH_MIN_DAYS_AHEAD) {
+            ESP_LOGI(TAG, "clock synced, cache still fresh — no fetch");
+        } else {
+            bool fetched = time_ok && wifi_ok &&
+                tides_fetch(&s_tides, today + CACHE_FIRST_DAY * 86400);
+            if (fetched) {
+                cache_save();
+            }
+        }
         if (wifi_ok) {
             net_disconnect();
         }
-        if (fetched) {
-            cache_save();
-        } else if (!(time_ok && tides_has_day(&s_tides, view_day))) {
+        if (!(time_ok && tides_has_day(&s_tides, view_day))) {
             // Nothing fit to draw: keep whatever is on screen, retry soon.
             ESP_LOGW(TAG, "refresh failed, retrying in %d min",
                      RETRY_SLEEP_SEC / 60);
