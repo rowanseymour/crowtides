@@ -86,7 +86,8 @@ bool net_sync_time(void)
     setenv("TZ", TIDE_TZ, 1);
     tzset();
 
-    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
+        2, ESP_SNTP_SERVER_LIST("time.google.com", "pool.ntp.org"));
     ESP_ERROR_CHECK(esp_netif_sntp_init(&cfg));
     esp_err_t err = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(SNTP_TIMEOUT_MS));
     esp_netif_sntp_deinit();

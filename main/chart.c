@@ -17,11 +17,13 @@
 #define CH_W (CH_RIGHT - CH_LEFT)
 #define CH_H (CH_BOTTOM - CH_TOP)
 
-static int x_for(time_t t, time_t t0, time_t span)
+#define DAY_SEC 86400
+
+static int x_for(time_t t, time_t t0)
 {
     if (t < t0) t = t0;
-    if (t > t0 + span) t = t0 + span;
-    return CH_LEFT + (int)((long long)(t - t0) * CH_W / span);
+    if (t > t0 + DAY_SEC) t = t0 + DAY_SEC;
+    return CH_LEFT + (int)((long long)(t - t0) * CH_W / DAY_SEC);
 }
 
 static int y_for(float h, float hmin, float hmax)
@@ -29,30 +31,40 @@ static int y_for(float h, float hmin, float hmax)
     return CH_BOTTOM - (int)((h - hmin) / (hmax - hmin) * CH_H);
 }
 
-void chart_render(const tide_data_t *t, time_t now)
+void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
 {
     epd_fb_clear();
 
-    time_t t0 = t->heights[0].dt;
-    time_t span = t->heights[t->n_heights - 1].dt - t0;
-    if (span <= 0) span = 24 * 3600;
+    // Sample index range for this day (inclusive endpoints).
+    int i0 = (int)(((int64_t)day_start - t->start) / TIDES_STEP_SEC);
+    int i1 = i0 + TIDES_SAMPLES_PER_DAY;
+    if (i0 < 0) i0 = 0;
+    if (i1 > t->n_heights - 1) i1 = t->n_heights - 1;
+    if (i1 <= i0) {
+        return;
+    }
 
     // Dynamic height range: fit the day's data, rounded out to 0.25m.
-    float hmin = t->heights[0].height, hmax = hmin;
-    for (int i = 0; i < t->n_heights; i++) {
-        float h = t->heights[i].height;
+    float hmin = t->h_mm[i0] / 1000.0f, hmax = hmin;
+    for (int i = i0; i <= i1; i++) {
+        float h = t->h_mm[i] / 1000.0f;
         if (h < hmin) hmin = h;
         if (h > hmax) hmax = h;
     }
     hmin = floorf((hmin - 0.1f) / 0.25f) * 0.25f;
     hmax = ceilf((hmax + 0.1f) / 0.25f) * 0.25f;
 
-    // Header: station name + date (no clock — the display refreshes
-    // infrequently). Heights are relative to Chart Datum.
+    // Header: station name + the VIEWED date, with an offset badge when
+    // browsing away from today. Heights are relative to Chart Datum.
     struct tm tm;
-    localtime_r(&now, &tm);
+    localtime_r(&day_start, &tm);
     char buf[48];
     epd_fb_text(8, 8, TIDE_STATION_NAME, 3, true);
+    if (day_offset != 0) {
+        snprintf(buf, sizeof(buf), "(%+d)", day_offset);
+        epd_fb_text(8 + (int)sizeof(TIDE_STATION_NAME) * 24 + 8, 12, buf, 2,
+                    true);
+    }
     snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
     epd_fb_text(EPD_WIDTH - 8 - (int)(sizeof("0000-00-00") - 1) * 16,
@@ -70,8 +82,8 @@ void chart_render(const tide_data_t *t, time_t now)
 
     // Vertical gridlines + hour labels every 3h.
     for (int hr = 0; hr <= 24; hr += 3) {
-        time_t tick = t0 + (time_t)hr * 3600;
-        int x = x_for(tick, t0, span);
+        time_t tick = day_start + (time_t)hr * 3600;
+        int x = x_for(tick, day_start);
         for (int y = CH_TOP; y < CH_BOTTOM; y += 4) {
             epd_fb_set_pixel(x, y, true);
         }
@@ -86,26 +98,30 @@ void chart_render(const tide_data_t *t, time_t now)
     epd_fb_line(CH_RIGHT, CH_TOP, CH_RIGHT, CH_BOTTOM, true);
 
     // Tide curve, 3px thick.
-    for (int i = 0; i + 1 < t->n_heights; i++) {
-        int x0 = x_for(t->heights[i].dt, t0, span);
-        int y0 = y_for(t->heights[i].height, hmin, hmax);
-        int x1 = x_for(t->heights[i + 1].dt, t0, span);
-        int y1 = y_for(t->heights[i + 1].height, hmin, hmax);
+    for (int i = i0; i < i1; i++) {
+        int x0 = x_for(t->start + (time_t)i * TIDES_STEP_SEC, day_start);
+        int y0 = y_for(t->h_mm[i] / 1000.0f, hmin, hmax);
+        int x1 = x_for(t->start + (time_t)(i + 1) * TIDES_STEP_SEC, day_start);
+        int y1 = y_for(t->h_mm[i + 1] / 1000.0f, hmin, hmax);
         for (int d = -1; d <= 1; d++) {
             epd_fb_line(x0, y0 + d, x1, y1 + d, true);
         }
     }
 
-    // Extremes: time + height labels near each peak/trough.
+    // Extremes within the day: time + height labels placed inside the
+    // curve's wedge — below a peak, above a trough — where there is
+    // always clear space.
     for (int i = 0; i < t->n_extremes; i++) {
         const tide_extreme_t *e = &t->extremes[i];
-        int x = x_for(e->dt, t0, span);
-        int y = y_for(e->height, hmin, hmax);
-        localtime_r(&e->dt, &tm);
+        if (e->dt < day_start || e->dt >= day_start + DAY_SEC) {
+            continue;
+        }
+        time_t edt = (time_t)e->dt;
+        float eh = e->h_mm / 1000.0f;
+        int x = x_for(edt, day_start);
+        int y = y_for(eh, hmin, hmax);
+        localtime_r(&edt, &tm);
         snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
-        // Place labels inside the curve's wedge — below a peak, above a
-        // trough. That space always exists (peaks hug the chart top with a
-        // dynamic scale) and widens with distance from the vertex.
         int lx = x - 40;
         if (lx < CH_LEFT + 2) lx = CH_LEFT + 2;
         if (lx > CH_RIGHT - 82) lx = CH_RIGHT - 82;
@@ -113,10 +129,7 @@ void chart_render(const tide_data_t *t, time_t now)
         if (ly < CH_TOP + 2) ly = CH_TOP + 2;
         if (ly > CH_BOTTOM - 36) ly = CH_BOTTOM - 36;
         epd_fb_text(lx, ly, buf, 2, true);
-        snprintf(buf, sizeof(buf), "%.1fm", e->height);
+        snprintf(buf, sizeof(buf), "%.1fm", eh);
         epd_fb_text(lx, ly + 18, buf, 2, true);
     }
-
-    // No current-time marker: like the clock, it would only be correct at
-    // the moment of refresh.
 }

@@ -4,13 +4,18 @@ A daily tide chart on an [Elecrow CrowPanel 5.79" E-Paper HMI](https://www.elecr
 (ESP32-S3, 792x272 dual-SSD1683 panel), built on plain ESP-IDF.
 
 Once a day, just after midnight in the tide station's timezone, the device
-wakes from deep sleep, syncs the clock over SNTP, fetches the day's tide
-heights and extremes from the [WorldTides API](https://www.worldtides.info/apidocs),
-draws a 24-hour chart (curve, high/low times and heights, gridlines), and
-goes back to sleep. The e-paper keeps the image with essentially no power;
-pressing the MENU button forces a refresh at any time. A failed refresh
-(no WiFi, no time, no data) leaves the previous chart on screen and
-retries half an hour later.
+wakes from deep sleep and draws the new day's 24-hour chart (curve,
+high/low times and heights, gridlines), then goes back to sleep — the
+e-paper keeps the image with essentially no power. Tide predictions are
+deterministic, so a month of heights and extremes from the
+[WorldTides API](https://www.worldtides.info/apidocs) is cached in flash
+(surviving power loss) and the radio only comes up when the cached window
+runs low, roughly every three weeks. A failed refresh leaves the previous
+chart on screen and retries half an hour later.
+
+The onboard controls navigate the cache without any network: the wheel
+browses forward/backward a day at a time (the header shows an offset badge
+like `(+1)`), EXIT returns to today, and MENU forces a full refetch.
 
 ## Setup
 
@@ -35,8 +40,9 @@ retries half an hour later.
 ## Notes
 
 - Tide heights are requested relative to Chart Datum (`datum=CD`), the
-  convention used on tide tables; one fetch of heights + extremes costs
-  2 API credits per day.
+  convention used on tide tables. The API bills 1 credit per 7 days each
+  for heights and extremes, so the monthly cache costs ~8 credits per
+  refetch (~12/month).
 - The vertical scale fits each day's range; the horizontal scale is fixed,
   midnight to midnight in the station's timezone.
 - The display driver lives in

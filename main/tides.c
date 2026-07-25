@@ -1,5 +1,7 @@
 #include "tides.h"
 
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,12 +14,11 @@
 
 static const char *TAG = "tides";
 
-#define RESPONSE_MAX (32 * 1024)
+#define RESPONSE_MAX (48 * 1024)
 
-static const char *URL =
-    "https://www.worldtides.info/api/v3?heights&extremes&date=today&days=1"
-    "&datum=CD&lat=" TIDE_LAT "&lon=" TIDE_LON "&key=" TIDE_API_KEY;
-
+// Parse one chunk's response, appending to `out`. Heights are placed by
+// sample index relative to out->start, which makes chunk-boundary
+// duplicates (each chunk includes the next midnight) harmless.
 static bool parse_response(const char *json, tide_data_t *out)
 {
     cJSON *root = cJSON_Parse(json);
@@ -40,22 +41,26 @@ static bool parse_response(const char *json, tide_data_t *out)
         goto done;
     }
 
-    out->n_heights = 0;
     cJSON *item;
     cJSON_ArrayForEach(item, heights) {
-        if (out->n_heights >= TIDES_MAX_HEIGHTS) {
-            break;
-        }
         cJSON *dt = cJSON_GetObjectItem(item, "dt");
         cJSON *h = cJSON_GetObjectItem(item, "height");
-        if (cJSON_IsNumber(dt) && cJSON_IsNumber(h)) {
-            out->heights[out->n_heights].dt = (time_t)dt->valuedouble;
-            out->heights[out->n_heights].height = (float)h->valuedouble;
-            out->n_heights++;
+        if (!cJSON_IsNumber(dt) || !cJSON_IsNumber(h)) {
+            continue;
+        }
+        if (out->n_heights == 0 && out->start == 0) {
+            out->start = (int64_t)dt->valuedouble;
+        }
+        int64_t idx = ((int64_t)dt->valuedouble - out->start) / TIDES_STEP_SEC;
+        if (idx < 0 || idx >= TIDES_MAX_HEIGHTS) {
+            continue;
+        }
+        out->h_mm[idx] = (int16_t)lrintf((float)h->valuedouble * 1000.0f);
+        if (idx + 1 > out->n_heights) {
+            out->n_heights = idx + 1;
         }
     }
 
-    out->n_extremes = 0;
     cJSON_ArrayForEach(item, extremes) {
         if (out->n_extremes >= TIDES_MAX_EXTREMES) {
             break;
@@ -64,26 +69,37 @@ static bool parse_response(const char *json, tide_data_t *out)
         cJSON *h = cJSON_GetObjectItem(item, "height");
         cJSON *type = cJSON_GetObjectItem(item, "type");
         if (cJSON_IsNumber(dt) && cJSON_IsNumber(h) && cJSON_IsString(type)) {
-            out->extremes[out->n_extremes].dt = (time_t)dt->valuedouble;
-            out->extremes[out->n_extremes].height = (float)h->valuedouble;
-            out->extremes[out->n_extremes].high =
-                strcmp(type->valuestring, "High") == 0;
-            out->n_extremes++;
+            int64_t edt = (int64_t)dt->valuedouble;
+            if (out->n_extremes > 0 &&
+                out->extremes[out->n_extremes - 1].dt >= edt) {
+                continue;  // chunk-boundary duplicate
+            }
+            tide_extreme_t *e = &out->extremes[out->n_extremes++];
+            e->dt = edt;
+            e->h_mm = (int16_t)lrintf((float)h->valuedouble * 1000.0f);
+            e->high = strcmp(type->valuestring, "High") == 0;
         }
     }
 
-    ok = out->n_heights >= 2;
-    ESP_LOGI(TAG, "parsed %d heights, %d extremes", out->n_heights,
-             out->n_extremes);
+    ok = true;
 done:
     cJSON_Delete(root);
     return ok;
 }
 
-bool tides_fetch(tide_data_t *out)
+static bool fetch_chunk(char *buf, time_t chunk_day, int days, tide_data_t *out)
 {
+    struct tm tm;
+    localtime_r(&chunk_day, &tm);
+    char url[256];
+    snprintf(url, sizeof(url),
+             "https://www.worldtides.info/api/v3?heights&extremes"
+             "&date=%04d-%02d-%02d&days=%d&datum=CD"
+             "&lat=" TIDE_LAT "&lon=" TIDE_LON "&key=" TIDE_API_KEY,
+             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, days);
+
     esp_http_client_config_t cfg = {
-        .url = URL,
+        .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 20000,
     };
@@ -91,12 +107,7 @@ bool tides_fetch(tide_data_t *out)
     if (client == NULL) {
         return false;
     }
-
-    char *buf = malloc(RESPONSE_MAX);
     bool ok = false;
-    if (buf == NULL) {
-        goto done;
-    }
 
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
@@ -123,7 +134,55 @@ bool tides_fetch(tide_data_t *out)
     }
 
 done:
-    free(buf);
     esp_http_client_cleanup(client);
     return ok;
+}
+
+bool tides_fetch(tide_data_t *out, time_t start_day)
+{
+    char *buf = malloc(RESPONSE_MAX);
+    if (buf == NULL) {
+        return false;
+    }
+
+    memset(out, 0, sizeof(*out));
+    bool ok = true;
+    for (int d = 0; d < TIDES_DAYS && ok; d += TIDES_FETCH_CHUNK_DAYS) {
+        int days = TIDES_DAYS - d;
+        if (days > TIDES_FETCH_CHUNK_DAYS) {
+            days = TIDES_FETCH_CHUNK_DAYS;
+        }
+        ok = fetch_chunk(buf, start_day + (time_t)d * 86400, days, out);
+    }
+    free(buf);
+
+    ok = ok && out->n_heights >= TIDES_DAYS * TIDES_SAMPLES_PER_DAY;
+    ESP_LOGI(TAG, "fetch %s: %d heights, %d extremes from %lld",
+             ok ? "ok" : "FAILED", out->n_heights, out->n_extremes,
+             (long long)out->start);
+    if (!ok) {
+        // Never leave a partial week behind.
+        memset(out, 0, sizeof(*out));
+    }
+    return ok;
+}
+
+bool tides_has_day(const tide_data_t *t, time_t day_start)
+{
+    if (t->n_heights <= 0) {
+        return false;
+    }
+    int64_t i0 = ((int64_t)day_start - t->start) / TIDES_STEP_SEC;
+    int64_t i1 = i0 + TIDES_SAMPLES_PER_DAY;
+    return i0 >= 0 && i1 < t->n_heights;
+}
+
+int tides_days_ahead(const tide_data_t *t, time_t from)
+{
+    if (t->n_heights <= 0) {
+        return 0;
+    }
+    int64_t end = t->start + (int64_t)(t->n_heights - 1) * TIDES_STEP_SEC;
+    int64_t days = (end - (int64_t)from) / 86400;
+    return days < 0 ? 0 : (int)days;
 }
