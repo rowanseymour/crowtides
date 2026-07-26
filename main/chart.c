@@ -8,8 +8,9 @@
 
 #include "config.h"
 
-// Layout: header strip on top; frameless chart below (baseline only),
-// hour labels along the bottom. No y-axis — extremes carry their own
+// Layout, top to bottom: header strip; frameless chart whose bottom
+// TIMES_BAND px are a solid black band carrying the extreme times in
+// white; baseline; hour labels. No y-axis — extremes carry their own
 // height labels, and unlabeled 0.5m gridlines give the eye its rungs.
 #define CH_LEFT   10
 #define CH_RIGHT  786
@@ -18,14 +19,13 @@
 #define CH_W (CH_RIGHT - CH_LEFT)
 #define CH_H (CH_BOTTOM - CH_TOP)
 
-// Vertical range reserves: the bottom band holds the solid water + white
-// times, the top band keeps sky-floating height labels inside the chart.
-#define RESERVE_BOTTOM 40
-#define RESERVE_TOP    26
+#define TIMES_BAND 30
 
-// Water turns solid black this many px above the baseline (the "deep
-// band" the white times sit in).
-#define SOLID_BAND 30
+// Vertical range reserves: the bottom one keeps the curve floating above
+// the times band, the top one keeps sky-floating height labels inside
+// the chart.
+#define RESERVE_BOTTOM (TIMES_BAND + 10)
+#define RESERVE_TOP    26
 
 static int x_for(time_t t, time_t t0)
 {
@@ -90,8 +90,8 @@ static void text_centered(int x, int y, const char *s, int scale, bool black)
     epd_fb_text(lx, y, s, scale, black);
 }
 
-// Dithered water below the curve: Bayer 4x4 densening with depth until it
-// turns solid black in the bottom band.
+// Dithered water below the curve: Bayer 4x4 densening with depth, so it
+// meets the times band near-solid.
 static const uint8_t BAYER4[4][4] = {
     { 0, 8, 2, 10 },
     { 12, 4, 14, 6 },
@@ -104,7 +104,7 @@ static const uint8_t BAYER4[4][4] = {
 static void draw_sea(const tide_data_t *t, int i0, int i1,
                      time_t day_start, float hmin, float hmax)
 {
-    const int solid_top = CH_BOTTOM - SOLID_BAND;
+    const int sea_bottom = CH_BOTTOM - TIMES_BAND;
     for (int i = i0; i < i1; i++) {
         int x0 = x_for(tides_sample_time(t, i), day_start);
         int y0 = y_for(tides_height_m(t, i), hmin, hmax);
@@ -112,14 +112,10 @@ static void draw_sea(const tide_data_t *t, int i0, int i1,
         int y1 = y_for(tides_height_m(t, i + 1), hmin, hmax);
         for (int x = x0; x < x1; x++) {
             int yc = y0 + (int)((long long)(y1 - y0) * (x - x0) / (x1 - x0));
-            for (int y = yc + 3; y < CH_BOTTOM; y++) {
-                if (y >= solid_top) {
+            for (int y = yc + 3; y < sea_bottom; y++) {
+                int level = 2 + (y - CH_TOP) * 12 / (sea_bottom - CH_TOP);
+                if (BAYER4[y % 4][x % 4] < level) {
                     epd_fb_set_pixel(x, y, true);
-                } else {
-                    int level = 2 + (y - CH_TOP) * 12 / (solid_top - CH_TOP);
-                    if (BAYER4[y % 4][x % 4] < level) {
-                        epd_fb_set_pixel(x, y, true);
-                    }
                 }
             }
         }
@@ -189,14 +185,15 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         }
     }
 
-    // Baseline only — no frame.
+    // Times band and baseline — no frame.
+    epd_fb_fill_rect(CH_LEFT, CH_BOTTOM - TIMES_BAND, CH_W, TIMES_BAND, true);
     epd_fb_line(CH_LEFT, CH_BOTTOM, CH_RIGHT, CH_BOTTOM, true);
 
     // Water and curve.
     draw_sea(t, i0, i1, day_start, hmin, hmax);
 
     // Extremes: heights float unboxed in the sky above each peak/trough;
-    // times sit in white inside the solid deep-water band.
+    // times sit in white in the band.
     for (int i = 0; i < t->n_extremes; i++) {
         const tide_extreme_t *e = &t->extremes[i];
         if (e->dt < day_start || e->dt >= day_start + TIDES_DAY_SEC) {
