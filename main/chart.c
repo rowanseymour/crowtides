@@ -134,10 +134,14 @@ static void draw_sea(const tide_data_t *t, int i0, int i1,
         int y0 = y_for(tides_height_m(t, i), hmin, hmax);
         int x1 = x_for(tides_sample_time(t, i + 1), day_start);
         int y1 = y_for(tides_height_m(t, i + 1), hmin, hmax);
-        for (int x = x0; x < x1; x++) {
+        // Inclusive of x1 so the water reaches the chart's right edge
+        // (interior boundary columns just repaint identically).
+        for (int x = x0; x <= x1; x++) {
             // Fill from yc: the 3px stroke drawn after overpaints the top
             // rows, leaving no white seam between line and water.
-            int yc = y0 + (int)((long long)(y1 - y0) * (x - x0) / (x1 - x0));
+            int yc = x1 > x0
+                ? y0 + (int)((long long)(y1 - y0) * (x - x0) / (x1 - x0))
+                : y0;
             for (int y = yc; y < sea_bottom; y++) {
                 int level = 2 + (y - CH_TOP) * 12 / (sea_bottom - CH_TOP);
                 if (BAYER4[y % 4][x % 4] < level) {
@@ -212,7 +216,8 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
     }
 
     // Times band and baseline — no frame.
-    epd_fb_fill_rect(CH_LEFT, CH_BOTTOM - TIMES_BAND, CH_W, TIMES_BAND, true);
+    epd_fb_fill_rect(CH_LEFT, CH_BOTTOM - TIMES_BAND, CH_W + 1, TIMES_BAND,
+                     true);
     epd_fb_line(CH_LEFT, CH_BOTTOM, CH_RIGHT, CH_BOTTOM, true);
 
     // Water and curve.
