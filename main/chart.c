@@ -67,6 +67,19 @@ static void fmt_axis_hour(char *buf, size_t n, int hr)
     }
 }
 
+// Header date, per TIDE_DATE_FMT: "ymd" 2026-07-26 (ISO, dashes),
+// "dmy" 26/07/2026 or "mdy" 07/26/2026 (slashes).
+static void fmt_date(char *buf, size_t n, const struct tm *tm)
+{
+    if (strcmp(TIDE_DATE_FMT, "dmy") == 0) {
+        strftime(buf, n, "%d/%m/%Y", tm);
+    } else if (strcmp(TIDE_DATE_FMT, "mdy") == 0) {
+        strftime(buf, n, "%m/%d/%Y", tm);
+    } else {
+        strftime(buf, n, "%Y-%m-%d", tm);
+    }
+}
+
 // Extreme height: heights are stored metric and only converted at
 // display time, as "2.0m" or "6.7'" per TIDE_UNITS ("m" / "ft").
 static void fmt_height(char *buf, size_t n, float m)
@@ -163,7 +176,7 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
     localtime_r(&day_start, &tm);
     char buf[48];
     epd_fb_text(8, 8, TIDE_STATION_NAME, 3, true);
-    strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
+    fmt_date(buf, sizeof(buf), &tm);
     if (day_offset == 0) {
         text_right(12, buf, 2);
     } else {

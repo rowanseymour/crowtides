@@ -33,3 +33,7 @@
 
 // Height units for the high/low labels: "m" (2.0m) or "ft" (6.7').
 #define TIDE_UNITS "m"
+
+// Header date format: "ymd" (2026-07-26), "dmy" (26/07/2026) or
+// "mdy" (07/26/2026).
+#define TIDE_DATE_FMT "ymd"
