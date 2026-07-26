@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="451.8mm" height="457.9mm" viewBox="0 0 451.8 457.9">
+<g transform="translate(12.00,108.97) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M35.920,26.615 A1.0,1.0 0 0 1 36.920,25.615 L171.920,25.615 A1.0,1.0 0 0 1 172.920,26.615 L172.920,70.355 A1.0,1.0 0 0 1 171.920,71.355 L36.920,71.355 A1.0,1.0 0 0 1 35.920,70.355 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="15.00" y="105.97" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L0 bezel - window; no holes</text>
+<g transform="translate(231.92,108.97) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M19.700,22.000 A2.3,2.3 0 0 1 22.000,19.700 L185.920,19.700 A2.3,2.3 0 0 1 188.220,22.000 L188.220,74.970 A2.3,2.3 0 0 1 185.920,77.270 L22.000,77.270 A2.3,2.3 0 0 1 19.700,74.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="1.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="234.92" y="105.97" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L1 board pocket - pilot holes d2</text>
+<g transform="translate(12.00,217.94) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,32.000 L188.220,32.000 L188.220,29.300 A0.8,0.8 0 0 0 187.420,28.500 L180.220,28.500 A0.8,0.8 0 0 1 179.420,27.700 L179.420,20.500 A0.8,0.8 0 0 0 178.620,19.700 L29.300,19.700 A0.8,0.8 0 0 0 28.500,20.500 L28.500,27.700 A0.8,0.8 0 0 1 27.700,28.500 L20.500,28.500 A0.8,0.8 0 0 0 19.700,29.300 L19.700,67.670 A0.8,0.8 0 0 0 20.500,68.470 L27.700,68.470 A0.8,0.8 0 0 1 28.500,69.270 L28.500,76.470 A0.8,0.8 0 0 0 29.300,77.270 L178.620,77.270 A0.8,0.8 0 0 0 179.420,76.470 L179.420,69.270 A0.8,0.8 0 0 1 180.220,68.470 L187.420,68.470 A0.8,0.8 0 0 0 188.220,67.670 L188.220,65.000 L207.920,65.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="15.00" y="214.94" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L2 tabs+channel - corner tabs press board</text>
+<g transform="translate(231.92,217.94) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,32.000 L188.220,32.000 L188.220,22.000 A2.3,2.3 0 0 0 185.920,19.700 L22.000,19.700 A2.3,2.3 0 0 0 19.700,22.000 L19.700,74.970 A2.3,2.3 0 0 0 22.000,77.270 L185.920,77.270 A2.3,2.3 0 0 0 188.220,74.970 L188.220,65.000 L207.920,65.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="234.92" y="214.94" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L3 cavity</text>
+<g transform="translate(12.00,326.91) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,32.000 L188.220,32.000 L188.220,22.000 A2.3,2.3 0 0 0 185.920,19.700 L22.000,19.700 A2.3,2.3 0 0 0 19.700,22.000 L19.700,74.970 A2.3,2.3 0 0 0 22.000,77.270 L185.920,77.270 A2.3,2.3 0 0 0 188.220,74.970 L188.220,65.000 L207.920,65.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="15.00" y="323.91" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L4 cavity</text>
+<g transform="translate(231.92,326.91) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,32.000 L188.220,32.000 L188.220,22.000 A2.3,2.3 0 0 0 185.920,19.700 L22.000,19.700 A2.3,2.3 0 0 0 19.700,22.000 L19.700,74.970 A2.3,2.3 0 0 0 22.000,77.270 L185.920,77.270 A2.3,2.3 0 0 0 188.220,74.970 L188.220,65.000 L207.920,65.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M31.000,81.300 A2,2 0 0 1 33.000,79.300 L45.000,79.300 A2,2 0 0 1 47.000,81.300 L47.000,91.500 A2,2 0 0 1 45.000,93.500 L33.000,93.500 A2,2 0 0 1 31.000,91.500 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M161.000,81.300 A2,2 0 0 1 163.000,79.300 L175.000,79.300 A2,2 0 0 1 177.000,81.300 L177.000,91.500 A2,2 0 0 1 175.000,93.500 L163.000,93.500 A2,2 0 0 1 161.000,91.500 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="1.6" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="234.92" y="323.91" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L5 keyhole recess</text>
+<g transform="translate(12.00,435.88) scale(1,-1)">
+<path d="M0.000,4.000 A4.0,4.0 0 0 1 4.000,0.000 L203.920,0.000 A4.0,4.0 0 0 1 207.920,4.000 L207.920,32.000 L188.220,32.000 L188.220,22.000 A2.3,2.3 0 0 0 185.920,19.700 L22.000,19.700 A2.3,2.3 0 0 0 19.700,22.000 L19.700,74.970 A2.3,2.3 0 0 0 22.000,77.270 L185.920,77.270 A2.3,2.3 0 0 0 188.220,74.970 L188.220,65.000 L207.920,65.000 L207.920,92.970 A4.0,4.0 0 0 1 203.920,96.970 L4.000,96.970 A4.0,4.0 0 0 1 0.000,92.970 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M37.000,87.672 L37.000,92.500 A2.0,2.0 0 0 0 41.000,92.500 L41.000,87.672 A3.75,3.75 0 1 0 37.000,87.672 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<path d="M167.000,87.672 L167.000,92.500 A2.0,2.0 0 0 0 171.000,92.500 L171.000,87.672 A3.75,3.75 0 1 0 167.000,87.672 Z" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="30.00" cy="10.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="178.00" cy="10.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="60.00" cy="87.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="148.00" cy="87.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="10.00" cy="48.50" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="16.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<circle cx="198.00" cy="81.00" r="3.0" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+</g>
+<text x="15.00" y="432.88" font-size="4" font-family="Helvetica,Arial" fill="#0000FF">L6 back+keyholes - screw heads recess here</text>
+</svg>
