@@ -199,25 +199,6 @@ void tides_cache_save(const tide_data_t *t)
     nvs_close(h);
 }
 
-bool tides_day_range(const tide_data_t *t, time_t day_start, int *i0, int *i1)
-{
-    *i0 = 0;
-    *i1 = 0;
-    if (t->n_heights <= 0) {
-        return false;
-    }
-    int64_t first = ((int64_t)day_start - t->start) / TIDES_STEP_SEC;
-    int64_t last = first + TIDES_SAMPLES_PER_DAY;
-    if (first < 0) first = 0;
-    if (last > t->n_heights - 1) last = t->n_heights - 1;
-    if (last <= first) {
-        return false;
-    }
-    *i0 = (int)first;
-    *i1 = (int)last;
-    return true;
-}
-
 bool tides_has_day(const tide_data_t *t, time_t day_start)
 {
     if (t->n_heights <= 0) {

@@ -9,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "epd_fb.h"
+
 static const char *TAG = "epd";
 
 // Pinout per Elecrow reference code (weather-crow5.7 spi.h) and the
@@ -25,11 +27,10 @@ static const char *TAG = "epd";
 #define HALF_ROW_BYTES 50
 #define HALF_BUF (HALF_ROW_BYTES * EPD_HEIGHT)
 
-// Framebuffer: row-major, 99 bytes per row (792px), bit7 = leftmost pixel,
-// 1 = white, 0 = black. Byte 49 of each row spans the chip seam and is sent
+// The framebuffer itself lives in epd_fb.c (hardware-free, shared with
+// host-side tools). Byte 49 of each row spans the chip seam and is sent
 // to both controllers (slave: bytes 0-49, master: bytes 49-98).
-#define ROW_BYTES (EPD_WIDTH / 8)
-static uint8_t s_fb[ROW_BYTES * EPD_HEIGHT];
+#define ROW_BYTES EPD_FB_ROW_BYTES
 
 static spi_device_handle_t s_spi;
 
@@ -139,7 +140,7 @@ static void write_window_rows(int bs, int be, int ys, int ye)
 {
     int wb = be - bs + 1;
     for (int y = ys; y <= ye; y++) {
-        memcpy(&s_half[(y - ys) * wb], &s_fb[y * ROW_BYTES + bs], wb);
+        memcpy(&s_half[(y - ys) * wb], &epd_fb[y * ROW_BYTES + bs], wb);
     }
     gpio_set_level(PIN_DC, 1);
     spi_write(s_half, wb * (ye - ys + 1));
@@ -282,56 +283,6 @@ void epd_clear_white(void)
     // waveform on this panel drives white->black only for (old=0,new=0)
     // pairs — with old RAM all-white it never blackens anything.
     ESP_LOGI(TAG, "clear to white done");
-}
-
-void epd_fb_clear(void)
-{
-    memset(s_fb, 0xFF, sizeof(s_fb));
-}
-
-void epd_fb_set_pixel(int x, int y, bool black)
-{
-    if (x < 0 || x >= EPD_WIDTH || y < 0 || y >= EPD_HEIGHT) {
-        return;
-    }
-    uint32_t pos = y * ROW_BYTES + x / 8;
-    uint8_t bit = 1 << (7 - (x % 8));
-    if (black) {
-        s_fb[pos] &= ~bit;
-    } else {
-        s_fb[pos] |= bit;
-    }
-}
-
-void epd_fb_fill_rect(int x, int y, int w, int h, bool black)
-{
-    for (int yy = y; yy < y + h; yy++) {
-        for (int xx = x; xx < x + w; xx++) {
-            epd_fb_set_pixel(xx, yy, black);
-        }
-    }
-}
-
-void epd_fb_line(int x0, int y0, int x1, int y1, bool black)
-{
-    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-    int err = dx + dy;
-    while (true) {
-        epd_fb_set_pixel(x0, y0, black);
-        if (x0 == x1 && y0 == y1) {
-            break;
-        }
-        int e2 = 2 * err;
-        if (e2 >= dy) {
-            err += dy;
-            x0 += sx;
-        }
-        if (e2 <= dx) {
-            err += dx;
-            y0 += sy;
-        }
-    }
 }
 
 // Full refresh, three acts — each waveform on this panel can only do one

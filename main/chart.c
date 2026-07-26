@@ -201,18 +201,6 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         text_right(24, rel, 2);
     }
 
-    // Hour labels every 3h, for all but the midnight edges (a clipped or
-    // shifted label looks worse than none). The gridlines themselves are
-    // drawn after the sea, below.
-    for (int hr = 0; hr <= 24; hr += 3) {
-        int x = x_for(day_start + (time_t)hr * 3600, day_start);
-        if (hr % 24 != 0) {
-            fmt_axis_hour(buf, sizeof(buf), hr);
-            epd_fb_text(x - epd_fb_text_width(buf, 2) / 2,
-                        CH_BOTTOM + 10, buf, 2, true);
-        }
-    }
-
     // Times band and baseline — no frame.
     epd_fb_fill_rect(CH_LEFT, CH_BOTTOM - TIMES_BAND, CH_W + 1, TIMES_BAND,
                      true);
@@ -221,8 +209,10 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
     // Water and curve.
     draw_sea(t, i0, i1, day_start, hmin, hmax);
 
-    // Gridlines after the sea, sky only — they stop at the curve rather
-    // than fading unevenly into the dither.
+    // Gridlines every 3h after the sea, sky only — they stop at the curve
+    // rather than fading unevenly into the dither. Hour labels for all
+    // but the midnight edges (a clipped or shifted label looks worse
+    // than none).
     for (int hr = 0; hr <= 24; hr += 3) {
         time_t tg = day_start + (time_t)hr * 3600;
         int x = x_for(tg, day_start);
@@ -232,6 +222,11 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         int ycv = y_for(tides_height_m(t, gi), hmin, hmax);
         for (int y = CH_TOP; y < ycv - 1; y += 4) {
             epd_fb_set_pixel(x, y, true);
+        }
+        if (hr % 24 != 0) {
+            fmt_axis_hour(buf, sizeof(buf), hr);
+            epd_fb_text(x - epd_fb_text_width(buf, 2) / 2,
+                        CH_BOTTOM + 10, buf, 2, true);
         }
     }
 
@@ -252,8 +247,9 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
 
         localtime_r(&edt, &tm);
         fmt_time(buf, sizeof(buf), &tm);
-        // -22 centres the digits' ink (14px tall — the glyphs' bottom row
-        // is empty) in the 30px band, not the nominal 16px text cell.
-        text_centered(x, CH_BOTTOM - 22, buf, 2, false);
+        // Centre the digits' ink (14px tall — the glyphs' bottom row is
+        // empty) in the band, not the nominal 16px text cell.
+        text_centered(x, CH_BOTTOM - TIMES_BAND + (TIMES_BAND - 14) / 2,
+                      buf, 2, false);
     }
 }

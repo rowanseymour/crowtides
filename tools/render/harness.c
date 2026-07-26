@@ -19,18 +19,6 @@
 
 void epd_stub_dump(const char *path);
 
-// Minimal stand-in for tides.c: clamp the day to the sample array.
-bool tides_day_range(const tide_data_t *t, time_t day_start, int *i0, int *i1)
-{
-    long off = (long)((day_start - (time_t)t->start) / TIDES_STEP_SEC);
-    long end = off + TIDES_SAMPLES_PER_DAY;
-    if (off < 0) off = 0;
-    if (end > t->n_heights - 1) end = t->n_heights - 1;
-    *i0 = (int)off;
-    *i1 = (int)end;
-    return *i1 > *i0;
-}
-
 // Semidiurnal sinusoid, mm above datum, with a range that decays through
 // the day so successive highs/lows differ like real tides. All the knobs
 // are overridable via CFLAGS_EXTRA, e.g. -DT_HIGH=0.0 for a high exactly
@@ -68,16 +56,14 @@ int main(int argc, char **argv)
 
     static tide_data_t d;
     time_t day_start = DAY_START;
-    d.start = day_start - TIDES_DAY_SEC;
-    d.n_heights = 3 * TIDES_SAMPLES_PER_DAY + 1;
+    d.start = day_start;
+    d.n_heights = TIDES_SAMPLES_PER_DAY + 1;
     for (int i = 0; i < d.n_heights; i++) {
-        double t = (double)(i * TIDES_STEP_SEC) - TIDES_DAY_SEC;
-        d.h_mm[i] = (int16_t)height_mm(t);
+        d.h_mm[i] = (int16_t)height_mm((double)(i * TIDES_STEP_SEC));
     }
     // True extremes of the sinusoid across the rendered day.
-    for (double t = T_HIGH - 2 * PERIOD; t < 2.0 * TIDES_DAY_SEC;
-         t += PERIOD / 2) {
-        if (t < 0 || t >= TIDES_DAY_SEC) continue;
+    for (double t = T_HIGH - 2 * PERIOD; t < TIDES_DAY_SEC; t += PERIOD / 2) {
+        if (t < 0) continue;
         d.extremes[d.n_extremes].dt = day_start + (int64_t)t;
         d.extremes[d.n_extremes].h_mm = (int16_t)height_mm(t);
         d.n_extremes++;

@@ -43,8 +43,27 @@ void tides_cache_save(const tide_data_t *t);
 
 // Sample index range [*i0, *i1] (inclusive) covering the day that starts
 // at local midnight `day_start`, clamped to the cached data. Returns
-// false (empty range) if the cache holds nothing for that day.
-bool tides_day_range(const tide_data_t *t, time_t day_start, int *i0, int *i1);
+// false (empty range) if the cache holds nothing for that day. Inline so
+// hardware-free consumers (tools/render) share the exact device logic.
+static inline bool tides_day_range(const tide_data_t *t, time_t day_start,
+                                   int *i0, int *i1)
+{
+    *i0 = 0;
+    *i1 = 0;
+    if (t->n_heights <= 0) {
+        return false;
+    }
+    int64_t first = ((int64_t)day_start - t->start) / TIDES_STEP_SEC;
+    int64_t last = first + TIDES_SAMPLES_PER_DAY;
+    if (first < 0) first = 0;
+    if (last > t->n_heights - 1) last = t->n_heights - 1;
+    if (last <= first) {
+        return false;
+    }
+    *i0 = (int)first;
+    *i1 = (int)last;
+    return true;
+}
 
 // True if the cache fully covers the day starting at `day_start`.
 bool tides_has_day(const tide_data_t *t, time_t day_start);
