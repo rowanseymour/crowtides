@@ -235,6 +235,8 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
 
         localtime_r(&edt, &tm);
         fmt_time(buf, sizeof(buf), &tm);
-        text_centered(x, CH_BOTTOM - 23, buf, 2, false);
+        // -22 centres the digits' ink (14px tall — the glyphs' bottom row
+        // is empty) in the 30px band, not the nominal 16px text cell.
+        text_centered(x, CH_BOTTOM - 22, buf, 2, false);
     }
 }
