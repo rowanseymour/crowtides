@@ -41,6 +41,21 @@ The onboard controls navigate the cache without any network:
    idf.py -p <port> flash monitor
    ```
 
+## Rendering on the host
+
+The chart renderer compiles unchanged on a regular computer:
+[tools/render](tools/render) links the real `chart.c` against stubbed
+framebuffer primitives and dumps a pixel-exact PBM of what the panel
+would show, using synthetic tides. Handy for previewing display changes
+without flashing:
+
+![Host-rendered chart](.github/screenshot-bondi.png)
+
+The same render with a 12-hour clock, heights in feet, and m/d/y dates
+(`TIDE_TIME_FMT`, `TIDE_UNITS`, `TIDE_DATE_FMT` in `config.h`):
+
+![Host-rendered chart, 12-hour and feet](.github/screenshot-waikiki.png)
+
 ## Notes
 
 - Tide heights are requested relative to Chart Datum (`datum=CD`), the
