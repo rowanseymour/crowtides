@@ -19,9 +19,12 @@ harmless usually aren't.
 ## Working notes
 
 - Verify display changes on the real panel — the user confirms visually.
-  For layout iteration, render PNG mockups with
-  `components/crowpanel579/tools/epdsim.py` (a pixel-faithful Python twin
-  of the framebuffer API) instead of flashing every attempt.
+  Before flashing, iterate on the host: `tools/render` compiles the real
+  `chart.c` against stubbed framebuffer primitives and dumps a PBM
+  (pixel-exact — `cmp` before/after renders to prove a refactor is a
+  visual no-op), and `components/crowpanel579/tools/epdsim.py` is a
+  pixel-faithful Python twin of the framebuffer API for sketching layouts
+  that don't exist in C yet.
 - `idf.py monitor` is interactive; to capture boot logs scriptably, open
   the port with pyserial and pulse RTS (with DTR low) to reset the board.
   Only one process can hold the serial port — a lingering background
