@@ -11,7 +11,7 @@
 // Layout, top to bottom: header strip; frameless chart whose bottom
 // TIMES_BAND px are a solid black band carrying the extreme times in
 // white; baseline; hour labels. No y-axis — extremes carry their own
-// height labels, and unlabeled 0.5m gridlines give the eye its rungs.
+// height labels.
 #define CH_LEFT   10
 #define CH_RIGHT  786
 #define CH_TOP    44
@@ -64,6 +64,17 @@ static void fmt_axis_hour(char *buf, size_t n, int hr)
         }
     } else {
         snprintf(buf, n, "%02d", hr);
+    }
+}
+
+// Extreme height: heights are stored metric and only converted at
+// display time, as "2.0m" or "6.7'" per TIDE_UNITS ("m" / "ft").
+static void fmt_height(char *buf, size_t n, float m)
+{
+    if (strcmp(TIDE_UNITS, "ft") == 0) {
+        snprintf(buf, n, "%.1f'", m * 3.28084f);
+    } else {
+        snprintf(buf, n, "%.1fm", m);
     }
 }
 
@@ -204,7 +215,7 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         int x = x_for(edt, day_start);
         int y = y_for(eh, hmin, hmax);
 
-        snprintf(buf, sizeof(buf), "%.1fm", eh);
+        fmt_height(buf, sizeof(buf), eh);
         text_centered(x, y - 26, buf, 2, true);
 
         localtime_r(&edt, &tm);
