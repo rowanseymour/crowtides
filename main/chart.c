@@ -201,13 +201,11 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         text_right(24, rel, 2);
     }
 
-    // Vertical gridlines every 3h; hour labels for all but the midnight
-    // edges (a clipped or shifted 00 looks worse than none).
+    // Hour labels every 3h, for all but the midnight edges (a clipped or
+    // shifted label looks worse than none). The gridlines themselves are
+    // drawn after the sea, below.
     for (int hr = 0; hr <= 24; hr += 3) {
         int x = x_for(day_start + (time_t)hr * 3600, day_start);
-        for (int y = CH_TOP; y < CH_BOTTOM; y += 4) {
-            epd_fb_set_pixel(x, y, true);
-        }
         if (hr % 24 != 0) {
             fmt_axis_hour(buf, sizeof(buf), hr);
             epd_fb_text(x - epd_fb_text_width(buf, 2) / 2,
@@ -222,6 +220,20 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
 
     // Water and curve.
     draw_sea(t, i0, i1, day_start, hmin, hmax);
+
+    // Gridlines after the sea, sky only — they stop at the curve rather
+    // than fading unevenly into the dither.
+    for (int hr = 0; hr <= 24; hr += 3) {
+        time_t tg = day_start + (time_t)hr * 3600;
+        int x = x_for(tg, day_start);
+        int gi = i0 + (int)((tg - tides_sample_time(t, i0)) / TIDES_STEP_SEC);
+        if (gi < i0) gi = i0;
+        if (gi > i1) gi = i1;
+        int ycv = y_for(tides_height_m(t, gi), hmin, hmax);
+        for (int y = CH_TOP; y < ycv - 1; y += 4) {
+            epd_fb_set_pixel(x, y, true);
+        }
+    }
 
     // Extremes: heights float unboxed in the sky above each peak/trough;
     // times sit in white in the band.
