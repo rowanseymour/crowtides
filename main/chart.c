@@ -45,6 +45,41 @@ static void text_right(int y, const char *s, int scale)
     epd_fb_text(EPD_WIDTH - 8 - epd_fb_text_width(s, scale), y, s, scale, true);
 }
 
+// TIDE_TIME_FMT is "12" or "24"; a string so the config reads naturally,
+// checked at runtime (the comparison constant-folds anyway).
+static bool clock_12h(void)
+{
+    return strcmp(TIDE_TIME_FMT, "12") == 0;
+}
+
+// Hour-of-day for the x-axis: "03".."21", or "3a".."12".."9p" on the
+// 12-hour clock (noon is bare "12").
+static void fmt_axis_hour(char *buf, size_t n, int hr)
+{
+    if (clock_12h()) {
+        if (hr == 12) {
+            snprintf(buf, n, "12");
+        } else {
+            snprintf(buf, n, "%d%c", hr % 12, hr < 12 ? 'a' : 'p');
+        }
+    } else {
+        snprintf(buf, n, "%02d", hr);
+    }
+}
+
+// Clock time for tide extremes: "20:00", or "8:00p" on the 12-hour clock.
+static void fmt_time(char *buf, size_t n, const struct tm *tm)
+{
+    if (clock_12h()) {
+        int h = tm->tm_hour % 12;
+        if (h == 0) h = 12;
+        snprintf(buf, n, "%d:%02d%c", h, tm->tm_min,
+                 tm->tm_hour < 12 ? 'a' : 'p');
+    } else {
+        snprintf(buf, n, "%02d:%02d", tm->tm_hour, tm->tm_min);
+    }
+}
+
 // Text horizontally centred on x, clamped inside the chart.
 static void text_centered(int x, int y, const char *s, int scale, bool black)
 {
@@ -148,8 +183,9 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
             epd_fb_set_pixel(x, y, true);
         }
         if (hr % 24 != 0) {
-            snprintf(buf, sizeof(buf), "%02d", hr);
-            epd_fb_text(x - 16, CH_BOTTOM + 10, buf, 2, true);
+            fmt_axis_hour(buf, sizeof(buf), hr);
+            epd_fb_text(x - epd_fb_text_width(buf, 2) / 2,
+                        CH_BOTTOM + 10, buf, 2, true);
         }
     }
 
@@ -175,7 +211,7 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         text_centered(x, y - 26, buf, 2, true);
 
         localtime_r(&edt, &tm);
-        strftime(buf, sizeof(buf), "%H:%M", &tm);
+        fmt_time(buf, sizeof(buf), &tm);
         text_centered(x, CH_BOTTOM - 23, buf, 2, false);
     }
 }

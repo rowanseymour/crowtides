@@ -26,3 +26,7 @@
 
 // Name shown in the chart header.
 #define TIDE_STATION_NAME "PORTRUSH"
+
+// Clock format: "24" (08:00 / 20:00, hour axis 03..21) or
+// "12" (8:00a / 8:00p, hour axis 3a..9p).
+#define TIDE_TIME_FMT "24"
