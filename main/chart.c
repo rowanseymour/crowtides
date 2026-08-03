@@ -22,10 +22,10 @@
 #define TIMES_BAND 30
 
 // Vertical range reserves: the bottom one keeps the curve floating above
-// the times band, the top one keeps sky-floating height labels inside
-// the chart.
+// the times band, the top one keeps sky-floating height labels — and the
+// rain% line stacked above them — inside the chart.
 #define RESERVE_BOTTOM (TIMES_BAND + 10)
-#define RESERVE_TOP    26
+#define RESERVE_TOP    44
 
 static int x_for(time_t t, time_t t0)
 {
@@ -80,15 +80,78 @@ static void fmt_date(char *buf, size_t n, const struct tm *tm)
     }
 }
 
-// Extreme height: heights are stored metric and only converted at
-// display time, as "2.0m" or "6.7'" per TIDE_UNITS ("m" / "ft").
-static void fmt_height(char *buf, size_t n, float m)
+// Extreme height: heights are stored metric and only converted at display
+// time. Unit kept separate from the number (see draw_height) — a trailing
+// "'" is a mostly-empty glyph cell that would skew text-width centering
+// off the actual digits, same issue the rain% icon had.
+static char fmt_height(char *buf, size_t n, float m)
 {
     if (strcmp(TIDE_UNITS, "ft") == 0) {
-        snprintf(buf, n, "%.1f'", m * 3.28084f);
-    } else {
-        snprintf(buf, n, "%.1fm", m);
+        snprintf(buf, n, "%.1f", m * 3.28084f);
+        return '\'';
     }
+    snprintf(buf, n, "%.1f", m);
+    return 'm';
+}
+
+// Height number centred on x (same math as text_centered); unit suffix
+// drawn right after, not counted in the centring — see fmt_height.
+static void draw_height(int x, int y, float eh)
+{
+    char buf[16];
+    char unit = fmt_height(buf, sizeof(buf), eh);
+    int w = epd_fb_text_width(buf, 2);
+    int lx = x - w / 2;
+    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
+    if (lx > CH_RIGHT - w - 6) lx = CH_RIGHT - w - 6;
+    epd_fb_text(lx, y, buf, 2, true);
+    char ubuf[2] = { unit, '\0' };
+    epd_fb_text(lx + w, y, ubuf, 2, true);
+}
+
+// Daily low/high + rain chance, e.g. "54/68 30%". No degree glyph in the
+// basic-ASCII font, so units are implied (matches TIDE_UNITS: F for ft,
+// C for m) rather than printed.
+static void fmt_weather(char *buf, size_t n, const weather_day_t *w)
+{
+    snprintf(buf, n, "%d/%d %d%%", w->temp_lo, w->temp_hi, w->rain_pct);
+}
+
+// A small raindrop, drawn the same way as font glyphs (8x8, LSB=leftmost
+// column) so it matches the display's pixel style. Bottom row left blank
+// like the font's own glyphs, so it sits level with adjacent text.
+static const uint8_t RAINDROP[8] = {
+    0x18, 0x18, 0x3C, 0x7E, 0x7E, 0x7E, 0x3C, 0x00,
+};
+
+static void draw_raindrop(int x, int y, int scale)
+{
+    for (int gy = 0; gy < 8; gy++) {
+        for (int gx = 0; gx < 8; gx++) {
+            if (!(RAINDROP[gy] & (1 << gx))) {
+                continue;
+            }
+            epd_fb_fill_rect(x + gx * scale, y + gy * scale, scale, scale,
+                             true);
+        }
+    }
+}
+
+// The rain% text is centred on x exactly like the height label below it
+// (same math as text_centered) so the two numbers line up; the raindrop
+// hangs off its left as a decoration rather than being counted in the
+// centring, since including it would skew the text off-centre.
+static void draw_rain(int x, int y, int rain_pct)
+{
+    char rbuf[16];
+    snprintf(rbuf, sizeof(rbuf), "%d%%", rain_pct);
+    int text_w = epd_fb_text_width(rbuf, 2);
+    int lx = x - text_w / 2;
+    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
+    if (lx > CH_RIGHT - text_w - 6) lx = CH_RIGHT - text_w - 6;
+    const int icon_w = 8 * 2, gap = 3;
+    draw_raindrop(lx - icon_w - gap, y, 2);
+    epd_fb_text(lx, y, rbuf, 2, true);
 }
 
 // Clock time for tide extremes: "20:00", or "8:00p" on the 12-hour clock.
@@ -155,7 +218,8 @@ static void draw_sea(const tide_data_t *t, int i0, int i1,
     }
 }
 
-void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
+void chart_render(const tide_data_t *t, const weather_data_t *w,
+                  time_t day_start, int day_offset)
 {
     epd_fb_clear();
 
@@ -181,14 +245,19 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
     struct tm tm;
     localtime_r(&day_start, &tm);
     char buf[48];
-    epd_fb_text(8, 8, TIDE_STATION_NAME, 3, true);
+    // y=4 (not 8) so the scale-3 station name's baseline lands level with
+    // the scale-2 weather/date line at y=12 — larger scale means a
+    // proportionally taller blank margin below the glyphs, so matching
+    // top-of-cell y would leave it looking like it sits lower.
+    epd_fb_text(8, 4, TIDE_STATION_NAME, 3, true);
     fmt_date(buf, sizeof(buf), &tm);
+    const char *rel = NULL;
+    char nbuf[24];
     if (day_offset == 0) {
         text_right(12, buf, 2);
     } else {
         text_right(4, buf, 2);
-        char nbuf[24];
-        const char *rel = nbuf;
+        rel = nbuf;
         if (day_offset == 1) {
             rel = "TOMORROW";
         } else if (day_offset == -1) {
@@ -199,6 +268,33 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
             snprintf(nbuf, sizeof(nbuf), "%d DAYS AGO", -day_offset);
         }
         text_right(24, rel, 2);
+    }
+
+    // Daily hi/lo + rain chance, centred in whatever horizontal gap is
+    // left between the station name and the date/relative-label column —
+    // both variable width, so this is measured, not assumed. Silently
+    // omitted (rather than truncated) if a long station name leaves no
+    // room, or the forecast doesn't cover this day.
+    const weather_day_t *wd = weather_for_day(w, day_start);
+    if (wd != NULL) {
+        int gap_left = 8 + epd_fb_text_width(TIDE_STATION_NAME, 3) + 12;
+        int right_edge = EPD_WIDTH - 8;
+        int boundary = right_edge - epd_fb_text_width(buf, 2);
+        if (rel != NULL) {
+            int rel_left = right_edge - epd_fb_text_width(rel, 2);
+            if (rel_left < boundary) boundary = rel_left;
+        }
+        int gap_right = boundary - 12;
+
+        char wbuf[16];
+        fmt_weather(wbuf, sizeof(wbuf), wd);
+        int ww = epd_fb_text_width(wbuf, 2);
+        if (ww <= gap_right - gap_left) {
+            // y=12 matches the date line's baseline (both scale-2 text),
+            // vertically centred against the station name's scale-3 line.
+            epd_fb_text(gap_left + (gap_right - gap_left - ww) / 2, 12,
+                       wbuf, 2, true);
+        }
     }
 
     // Times band and baseline — no frame.
@@ -242,8 +338,15 @@ void chart_render(const tide_data_t *t, time_t day_start, int day_offset)
         int x = x_for(edt, day_start);
         int y = y_for(eh, hmin, hmax);
 
-        fmt_height(buf, sizeof(buf), eh);
-        text_centered(x, y - 26, buf, 2, true);
+        draw_height(x, y - 26, eh);
+
+        // Rain chance at this extreme's own time, stacked above the
+        // height — omitted (not clamped) if outside the fetched hourly
+        // window or if RESERVE_TOP somehow doesn't leave room.
+        int rain = weather_rain_at(w, edt);
+        if (rain >= 0 && y - 44 >= CH_TOP) {
+            draw_rain(x, y - 44, rain);  // 2px gap above the height line
+        }
 
         localtime_r(&edt, &tm);
         fmt_time(buf, sizeof(buf), &tm);
