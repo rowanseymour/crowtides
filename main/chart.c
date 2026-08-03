@@ -21,6 +21,12 @@
 
 #define TIMES_BAND 30
 
+// Tighter-than-normal letter spacing for the station name header — it's
+// often long ("Vero Marine Center"), and the font's default 8*scale
+// advance leaves visible gaps beyond each glyph's own ink.
+#define STATION_SCALE   3
+#define STATION_ADVANCE (8 * STATION_SCALE - 4)
+
 // Vertical range reserves: the bottom one keeps the curve floating above
 // the times band, the top one keeps sky-floating height labels — and the
 // rain% line stacked above them — inside the chart.
@@ -80,10 +86,8 @@ static void fmt_date(char *buf, size_t n, const struct tm *tm)
     }
 }
 
-// Extreme height: heights are stored metric and only converted at display
-// time. Unit kept separate from the number (see draw_height) — a trailing
-// "'" is a mostly-empty glyph cell that would skew text-width centering
-// off the actual digits, same issue the rain% icon had.
+// Extreme height: heights are stored metric and only converted at
+// display time, as "2.0m" or "6.7'" per TIDE_UNITS ("m" / "ft").
 static char fmt_height(char *buf, size_t n, float m)
 {
     if (strcmp(TIDE_UNITS, "ft") == 0) {
@@ -94,19 +98,28 @@ static char fmt_height(char *buf, size_t n, float m)
     return 'm';
 }
 
-// Height number centred on x (same math as text_centered); unit suffix
-// drawn right after, not counted in the centring — see fmt_height.
+// Number+unit centred on x as one block, matching draw_rain. The "'"
+// glyph only fills its left ~3 of 8 columns (see font8x8_basic.h), so a
+// block centred on its full nominal cell width reads visually shifted
+// left; nudge right by half a character cell — the unit's own "missing"
+// width — to compensate. "m" fills its cell normally, so it doesn't need
+// this.
 static void draw_height(int x, int y, float eh)
 {
     char buf[16];
     char unit = fmt_height(buf, sizeof(buf), eh);
-    int w = epd_fb_text_width(buf, 2);
-    int lx = x - w / 2;
-    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
-    if (lx > CH_RIGHT - w - 6) lx = CH_RIGHT - w - 6;
-    epd_fb_text(lx, y, buf, 2, true);
     char ubuf[2] = { unit, '\0' };
-    epd_fb_text(lx + w, y, ubuf, 2, true);
+    int num_w = epd_fb_text_width(buf, 2);
+    int unit_w = epd_fb_text_width(ubuf, 2);
+    int total_w = num_w + unit_w;
+    int lx = x - total_w / 2;
+    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
+    if (lx > CH_RIGHT - total_w - 6) lx = CH_RIGHT - total_w - 6;
+    if (unit == '\'') {
+        lx += unit_w / 2;
+    }
+    epd_fb_text(lx, y, buf, 2, true);
+    epd_fb_text(lx + num_w, y, ubuf, 2, true);
 }
 
 // Daily low/high + rain chance, e.g. "54/68 30%". No degree glyph in the
@@ -137,21 +150,20 @@ static void draw_raindrop(int x, int y, int scale)
     }
 }
 
-// The rain% text is centred on x exactly like the height label below it
-// (same math as text_centered) so the two numbers line up; the raindrop
-// hangs off its left as a decoration rather than being counted in the
-// centring, since including it would skew the text off-centre.
+// Raindrop + rain% centred as one block on x, same as draw_height's
+// number+unit — so both stacked lines share the same centring approach.
 static void draw_rain(int x, int y, int rain_pct)
 {
     char rbuf[16];
     snprintf(rbuf, sizeof(rbuf), "%d%%", rain_pct);
-    int text_w = epd_fb_text_width(rbuf, 2);
-    int lx = x - text_w / 2;
-    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
-    if (lx > CH_RIGHT - text_w - 6) lx = CH_RIGHT - text_w - 6;
     const int icon_w = 8 * 2, gap = 3;
-    draw_raindrop(lx - icon_w - gap, y, 2);
-    epd_fb_text(lx, y, rbuf, 2, true);
+    int text_w = epd_fb_text_width(rbuf, 2);
+    int total_w = icon_w + gap + text_w;
+    int lx = x - total_w / 2;
+    if (lx < CH_LEFT + 6) lx = CH_LEFT + 6;
+    if (lx > CH_RIGHT - total_w - 6) lx = CH_RIGHT - total_w - 6;
+    draw_raindrop(lx, y, 2);
+    epd_fb_text(lx + icon_w + gap, y, rbuf, 2, true);
 }
 
 // Clock time for tide extremes: "20:00", or "8:00p" on the 12-hour clock.
@@ -249,7 +261,8 @@ void chart_render(const tide_data_t *t, const weather_data_t *w,
     // the scale-2 weather/date line at y=12 — larger scale means a
     // proportionally taller blank margin below the glyphs, so matching
     // top-of-cell y would leave it looking like it sits lower.
-    epd_fb_text(8, 4, TIDE_STATION_NAME, 3, true);
+    epd_fb_text_tracked(8, 4, TIDE_STATION_NAME, STATION_SCALE, true,
+                        STATION_ADVANCE);
     fmt_date(buf, sizeof(buf), &tm);
     const char *rel = NULL;
     char nbuf[24];
@@ -277,7 +290,9 @@ void chart_render(const tide_data_t *t, const weather_data_t *w,
     // room, or the forecast doesn't cover this day.
     const weather_day_t *wd = weather_for_day(w, day_start);
     if (wd != NULL) {
-        int gap_left = 8 + epd_fb_text_width(TIDE_STATION_NAME, 3) + 12;
+        int gap_left = 8 +
+            epd_fb_text_tracked_width(TIDE_STATION_NAME, STATION_ADVANCE) +
+            12;
         int right_edge = EPD_WIDTH - 8;
         int boundary = right_edge - epd_fb_text_width(buf, 2);
         if (rel != NULL) {
