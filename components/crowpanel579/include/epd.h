@@ -24,6 +24,11 @@ void epd_fb_set_pixel(int x, int y, bool black);
 void epd_fb_fill_rect(int x, int y, int w, int h, bool black);
 void epd_fb_line(int x0, int y0, int x1, int y1, bool black);
 
+// Rotate all subsequent epd_fb_* drawing 180° (panel mounted upside down).
+// Takes effect on the next draw call; does not touch what's already in the
+// framebuffer.
+void epd_fb_set_rotation(bool rotated);
+
 // Push the framebuffer to the panel with a full refresh (visible
 // flashes). Deterministic from any stale state.
 void epd_display(void);

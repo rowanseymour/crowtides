@@ -15,11 +15,13 @@ chart on screen and retries half an hour later.
 
 The onboard controls navigate the cache without any network:
 
-| Control | Action |
-| ------- | ------ |
-| Wheel   | Browse forward/backward a day at a time |
-| EXIT    | Return to today |
-| MENU    | Force a full refetch |
+| Control            | Action |
+| ------------------ | ------ |
+| Wheel               | Browse forward/backward a day at a time |
+| EXIT                | Return to today |
+| EXIT (hold ~2s)     | Flip the display 180° (for upside-down mounting) |
+| MENU                | Force a full tide refetch |
+| Wheel click (hold ~2s) | Force a weather refresh for today only |
 
 ## Setup
 

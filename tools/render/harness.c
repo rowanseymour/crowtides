@@ -51,7 +51,11 @@ static double height_mm(double t)
 
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+    _putenv_s("TZ", TIDE_TZ);
+#else
     setenv("TZ", TIDE_TZ, 1);
+#endif
     tzset();
 
     static tide_data_t d;
@@ -69,7 +73,23 @@ int main(int argc, char **argv)
         d.n_extremes++;
     }
 
-    chart_render(&d, day_start, 0);
+    // Synthetic forecast for the rendered day, to preview the header
+    // weather line and the per-extreme rain% labels.
+    static weather_data_t w;
+    w.n_days = 1;
+    w.days[0].date = day_start;
+    w.days[0].temp_hi = 74;
+    w.days[0].temp_lo = 61;
+    w.days[0].rain_pct = 20;
+    w.hourly_start = day_start;
+    w.n_hours = 24;
+    for (int h = 0; h < 24; h++) {
+        // A swing from low to high and back, so different extremes show
+        // visibly different rain% in the preview.
+        w.hourly_rain[h] = (uint8_t)(50 + 45 * cos(2 * M_PI * h / 24.0));
+    }
+
+    chart_render(&d, &w, day_start, 0);
     epd_stub_dump(argc > 1 ? argv[1] : "out.pbm");
     return 0;
 }
