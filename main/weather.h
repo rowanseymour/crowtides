@@ -32,6 +32,11 @@ typedef struct {
 // Requires WiFi. Returns false on any failure (leaves *out untouched).
 bool weather_fetch(weather_data_t *out);
 
+// Fetch just today (n_days=1, n_hours=24) — for an on-demand "refresh
+// now" that doesn't need the full multi-day pull. Caller is responsible
+// for merging the result into an existing cache; this doesn't touch NVS.
+bool weather_fetch_today(weather_data_t *out);
+
 // NVS persistence, same pattern as tides_cache_load/save. The cache is
 // tagged with coordinates+units, so either changing invalidates it. Load
 // leaves `out` zeroed when there is no valid cache.

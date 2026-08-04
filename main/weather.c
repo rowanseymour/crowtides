@@ -22,7 +22,7 @@ static const char *TAG = "weather";
 // display time).
 #define CACHE_LOC TIDE_LAT "," TIDE_LON "," TIDE_UNITS
 
-static void build_url(char *url, size_t size)
+static void build_url(char *url, size_t size, int days)
 {
     const char *unit = strcmp(TIDE_UNITS, "ft") == 0 ? "fahrenheit" : "celsius";
     snprintf(url, size,
@@ -32,7 +32,7 @@ static void build_url(char *url, size_t size)
              "precipitation_probability_max"
              "&hourly=precipitation_probability"
              "&temperature_unit=%s&timezone=auto&forecast_days=%d",
-             unit, WEATHER_MAX_DAYS);
+             unit, days);
 }
 
 static bool parse_date(const char *s, time_t *out)
@@ -146,7 +146,7 @@ done:
     return ok;
 }
 
-bool weather_fetch(weather_data_t *out)
+static bool weather_fetch_n(weather_data_t *out, int days)
 {
     memset(out, 0, sizeof(*out));
 
@@ -156,7 +156,7 @@ bool weather_fetch(weather_data_t *out)
     }
 
     char url[256];
-    build_url(url, sizeof(url));
+    build_url(url, sizeof(url), days);
     esp_http_client_config_t cfg = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -191,6 +191,16 @@ bool weather_fetch(weather_data_t *out)
         memset(out, 0, sizeof(*out));
     }
     return ok;
+}
+
+bool weather_fetch(weather_data_t *out)
+{
+    return weather_fetch_n(out, WEATHER_MAX_DAYS);
+}
+
+bool weather_fetch_today(weather_data_t *out)
+{
+    return weather_fetch_n(out, 1);
 }
 
 void weather_cache_load(weather_data_t *out)
