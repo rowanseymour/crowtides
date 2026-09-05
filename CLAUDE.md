@@ -10,8 +10,8 @@ harmless usually aren't.
 
 ## Environment
 
-- ESP-IDF v5.5.5 at `~/electronics/esp-idf`; activate with
-  `. ~/electronics/esp-idf/export.sh`, then `idf.py build flash`.
+- ESP-IDF v5.5.5 at `~/code/esp-idf`; activate with
+  `. ~/code/esp-idf/export.sh`, then `idf.py build flash`.
 - The board enumerates as `/dev/cu.usbserial-210`.
 - `main/config.h` (gitignored) holds WiFi credentials, timezone, and the
   WorldTides key/station; copy from `main/config.example.h`.
