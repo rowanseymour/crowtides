@@ -2,9 +2,14 @@
 // config.h is gitignored — never commit real credentials.
 #pragma once
 
-// 2.4GHz WiFi network (the ESP32-S3 has no 5GHz support).
-#define WIFI_SSID "your-ssid"
-#define WIFI_PASS "your-password"
+// 2.4GHz WiFi networks (the ESP32-S3 has no 5GHz support). List as many
+// as you like, e.g. home and holiday house: the device scans on each
+// connect and joins whichever of these is visible, strongest first. If
+// none is seen (hidden SSID) it tries them in this order.
+#define WIFI_NETWORKS { \
+    { "your-ssid", "your-password" }, \
+    { "other-ssid", "other-password" }, \
+}
 
 // POSIX TZ string for the tide station's timezone. This drives the
 // chart's hour axis and the midnight refresh schedule, so it should be
