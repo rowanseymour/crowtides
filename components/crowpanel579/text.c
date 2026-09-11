@@ -10,7 +10,13 @@ int epd_fb_text_width(const char *s, int scale)
     return (int)strlen(s) * 8 * scale;
 }
 
-int epd_fb_text(int x, int y, const char *s, int scale, bool black)
+int epd_fb_text_tracked_width(const char *s, int advance)
+{
+    return (int)strlen(s) * advance;
+}
+
+int epd_fb_text_tracked(int x, int y, const char *s, int scale, bool black,
+                        int advance)
 {
     for (; *s != '\0'; s++) {
         unsigned char c = (unsigned char)*s;
@@ -27,7 +33,12 @@ int epd_fb_text(int x, int y, const char *s, int scale, bool black)
                                  scale, scale, black);
             }
         }
-        x += 8 * scale;
+        x += advance;
     }
     return x;
+}
+
+int epd_fb_text(int x, int y, const char *s, int scale, bool black)
+{
+    return epd_fb_text_tracked(x, y, s, scale, black, 8 * scale);
 }

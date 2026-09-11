@@ -9,6 +9,7 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
 #include "board.h"
@@ -17,6 +18,7 @@
 #include "epd.h"
 #include "net_time.h"
 #include "tides.h"
+#include "weather.h"
 
 static const char *TAG = "crowtides";
 
@@ -38,10 +40,60 @@ static const char *TAG = "crowtides";
 // it also survives power loss (battery swaps).
 RTC_DATA_ATTR static int s_offset;
 
+// Whether the panel is mounted upside down (holding EXIT toggles this).
+// Persisted in NVS so it survives power loss, not just deep sleep.
+static bool s_rotated;
+
 static tide_data_t s_tides;
+static weather_data_t s_weather;
 
 static const int WAKE_BTNS[] = { BTN_MENU, BTN_EXIT, BTN_WHEEL_UP,
-                                 BTN_WHEEL_DOWN };
+                                 BTN_WHEEL_DOWN, BTN_WHEEL_CLICK };
+
+static bool load_rotated(void)
+{
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open("crowtides", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "rot180", &v);
+        nvs_close(h);
+    }
+    return v != 0;
+}
+
+static void save_rotated(bool rotated)
+{
+    nvs_handle_t h;
+    if (nvs_open("crowtides", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "rot180", rotated ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+#define LONG_PRESS_MS 2000
+
+// True if `pin` is still held LONG_PRESS_MS after wake — used to give a
+// button a second, "held" meaning distinct from its normal tap (EXIT:
+// flip display; WHEEL_CLICK: force a weather refresh). Single pin, no
+// multi-button coordination needed — just bails out the moment it's
+// released early.
+static bool button_held(int pin)
+{
+    gpio_config_t in = {
+        .pin_bit_mask = 1ULL << pin,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&in));
+    for (int t = 0; t < LONG_PRESS_MS / 20; t++) {
+        if (gpio_get_level(pin) != 0) {
+            return false;  // released early — normal tap
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return true;
+}
 
 static time_t local_midnight(time_t t)
 {
@@ -97,11 +149,11 @@ static void accumulate_wheel_input(void)
         int up = gpio_get_level(BTN_WHEEL_UP);
         int down = gpio_get_level(BTN_WHEEL_DOWN);
         if (up == 0 && prev_up == 1) {
-            s_offset++;
+            s_offset += s_rotated ? -1 : 1;
             t = 0;  // extend the window on activity
         }
         if (down == 0 && prev_down == 1) {
-            s_offset--;
+            s_offset += s_rotated ? 1 : -1;
             t = 0;
         }
         prev_up = up;
@@ -142,6 +194,10 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     tides_cache_load(&s_tides);
+    weather_cache_load(&s_weather);
+
+    s_rotated = load_rotated();
+    epd_fb_set_rotation(s_rotated);
 
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     uint64_t pins = cause == ESP_SLEEP_WAKEUP_EXT1
@@ -152,9 +208,16 @@ void app_main(void)
     time_t today, view_day;
     refresh_view(&time_ok, &today, &view_day);
 
-    bool force_fetch = false;  // definitely fetch
-    bool need_net = false;     // need the clock before deciding
-    if (cause == ESP_SLEEP_WAKEUP_TIMER || cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    bool force_fetch = false;    // definitely fetch tides
+    bool need_net = false;       // need the clock before deciding
+    bool force_weather = false;  // definitely refresh weather (today only)
+    // Weather (unlike tides) goes stale fast, so it refetches every daily
+    // wake regardless of whether the tide cache needs anything — but only
+    // piggybacked on that already-scheduled wake, never a new one of its
+    // own.
+    bool is_daily_wake = cause == ESP_SLEEP_WAKEUP_TIMER ||
+                         cause == ESP_SLEEP_WAKEUP_UNDEFINED;
+    if (is_daily_wake) {
         // Daily redraw (or cold boot). Only fetch when the cached window
         // runs low — tide predictions don't change. Without a valid clock
         // (power loss) we must sync first; the cache may still be fine.
@@ -168,13 +231,28 @@ void app_main(void)
         s_offset = 0;
         force_fetch = true;
     } else if (pins & (1ULL << BTN_EXIT)) {
-        s_offset = 0;
+        if (button_held(BTN_EXIT)) {
+            s_rotated = !s_rotated;
+            save_rotated(s_rotated);
+            epd_fb_set_rotation(s_rotated);
+        } else {
+            s_offset = 0;
+        }
     } else if (pins & (1ULL << BTN_WHEEL_UP)) {
-        s_offset++;
+        s_offset += s_rotated ? -1 : 1;
         accumulate_wheel_input();
     } else if (pins & (1ULL << BTN_WHEEL_DOWN)) {
-        s_offset--;
+        s_offset += s_rotated ? 1 : -1;
         accumulate_wheel_input();
+    } else if (pins & (1ULL << BTN_WHEEL_CLICK)) {
+        // Held: force a fresh weather pull for today, without also
+        // forcing the (unnecessary — tides are deterministic) full tide
+        // refetch that MENU triggers. A short click currently does
+        // nothing.
+        if (button_held(BTN_WHEEL_CLICK)) {
+            s_offset = 0;
+            force_weather = true;
+        }
     }
 
     refresh_view(&time_ok, &today, &view_day);
@@ -182,7 +260,7 @@ void app_main(void)
         need_net = true;
     }
 
-    if (force_fetch || need_net) {
+    if (force_fetch || need_net || is_daily_wake || force_weather) {
         bool wifi_ok = net_connect();
         if (wifi_ok) {
             net_sync_time();
@@ -203,6 +281,42 @@ void app_main(void)
                 tides_cache_save(&s_tides);
             }
         }
+
+        // Best-effort: a failed weather fetch just keeps the previous
+        // forecast on screen rather than blocking the tide chart.
+        if (is_daily_wake && wifi_ok) {
+            weather_data_t w;
+            if (weather_fetch(&w)) {
+                s_weather = w;
+                weather_cache_save(&s_weather);
+            } else {
+                ESP_LOGW(TAG, "weather fetch failed, keeping cached forecast");
+            }
+        } else if (force_weather && wifi_ok) {
+            // Held WHEEL_CLICK: refresh just today rather than the full
+            // multi-day pull, merged into the existing cache so the rest
+            // of the forecast (which this fetch doesn't cover) survives.
+            weather_data_t w;
+            if (weather_fetch_today(&w) && w.n_days > 0) {
+                s_weather.n_days = s_weather.n_days > 0 ? s_weather.n_days : 1;
+                s_weather.days[0] = w.days[0];
+                if (s_weather.n_hours == 0) {
+                    s_weather.hourly_start = w.hourly_start;
+                }
+                if (s_weather.hourly_start == w.hourly_start) {
+                    int n = w.n_hours < WEATHER_MAX_HOURS ? w.n_hours
+                                                          : WEATHER_MAX_HOURS;
+                    memcpy(s_weather.hourly_rain, w.hourly_rain, n);
+                    if (s_weather.n_hours < n) {
+                        s_weather.n_hours = n;
+                    }
+                }
+                weather_cache_save(&s_weather);
+            } else {
+                ESP_LOGW(TAG, "weather refresh failed, keeping cached forecast");
+            }
+        }
+
         if (wifi_ok) {
             net_disconnect();
         }
@@ -216,7 +330,7 @@ void app_main(void)
     }
 
     epd_init();
-    chart_render(&s_tides, view_day, s_offset);
+    chart_render(&s_tides, &s_weather, view_day, s_offset);
     epd_display();
     epd_sleep();
     ESP_LOGI(TAG, "chart drawn for offset %+d, %d cached days ahead",

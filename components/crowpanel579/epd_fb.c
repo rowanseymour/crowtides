@@ -8,6 +8,13 @@
 
 uint8_t epd_fb[EPD_FB_ROW_BYTES * EPD_HEIGHT];
 
+static bool s_rotated = false;
+
+void epd_fb_set_rotation(bool rotated)
+{
+    s_rotated = rotated;
+}
+
 void epd_fb_clear(void)
 {
     memset(epd_fb, 0xFF, sizeof(epd_fb));
@@ -15,6 +22,10 @@ void epd_fb_clear(void)
 
 void epd_fb_set_pixel(int x, int y, bool black)
 {
+    if (s_rotated) {
+        x = EPD_WIDTH - 1 - x;
+        y = EPD_HEIGHT - 1 - y;
+    }
     if (x < 0 || x >= EPD_WIDTH || y < 0 || y >= EPD_HEIGHT) {
         return;
     }
